@@ -321,60 +321,52 @@ class CoreOptimiser(torch.optim.Optimizer):
         return False
 
     def get_dlr(self, group):
-        lr = group['lr']
+        return (self.shared_d if self.split_groups and self.shared_d else group['d']) * group['lr']
 
-        dlr = (self.shared_d if self.split_groups and self.shared_d else group['d']) * lr
-        dlr = max(dlr, group['d0'])
-       
-        return dlr
+    def update_prodigy(self, state, group, grad, data, num_scale):
+        # num_scale is used to compensate the numerator calculations when
+        # clipping/scaling is applied to the incoming update. If we don't
+        # do this, it will dampen Prodigy's 'd' predictions.
 
-    def update_prodigy(self, state, group, grad, data):
         k = group['k']
         prodigy_steps = group['prodigy_steps']
         
         if prodigy_steps <= 0 or k < prodigy_steps:
-            d, d0 = group['d'], group['d0']
             beta3 = group['beta3']
 
             sliced_grad = self.get_sliced_tensor(grad)
-            sliced_data = self.get_sliced_tensor(data).float()
+            sliced_data = self.get_sliced_tensor(data)
 
-            # Rescale Prodigy updates to compensate for the lost elements due to slicing.
-            # This is mostly for logging purposes and shouldn't change the functionality.
-            slice_scale = grad.numel() / sliced_grad.numel()
             running_d_numerator, running_d_denom = self.get_running_values_for_group(group)
 
             s = state['s']
 
             x0_minus = state['p0'] - sliced_data
-            running_d_numerator.add_(torch.dot(sliced_grad, x0_minus), alpha=(d / d0) * d * slice_scale)
+            running_d_numerator.add_(torch.dot(sliced_grad, x0_minus), alpha=num_scale)
 
-            s.mul_(beta3).add_(sliced_grad, alpha=(d / d0) * d * slice_scale)
+            s.mul_(beta3).add_(sliced_grad)
             running_d_denom.add_(s.abs().sum())
-
             del x0_minus
         elif 's' in state: # Free the memory used by Prodigy, as we no longer need it.
             del state['s']
             del state['p0']
 
     def update_(self, num, denom, group):
-        d = group['d']
         eps = group['eps']
-        
-        # Deviate from reference Prodigy -- rather than apply d to the EMAs, 
-        # apply directly before calculating the update to simplify the rest of the optimiser.
-        num.mul_(d)
-        denom.mul_(d * d)
 
         if eps is None:
+            # Approximate scaling for a regular Adam-style update.
+            scaling_factor = (self.get_rms(num) / self.get_rms(denom)).item()
+
             # Adam-atan2. Use atan2 rather than epsilon and division 
             # for parameter updates (https://arxiv.org/abs/2407.05872).
             # Has the nice property of "clipping" the gradient as well.
             update = num.atan2_(denom)
         else:
-            update = num.div_(denom.add_(d * eps))
+            update = num.div_(denom.add_(eps))
+            scaling_factor = 1.0
 
-        return update
+        return update, scaling_factor
 
     def get_denom(self, state):
         exp_avg_sq = state['exp_avg_sq']
@@ -430,11 +422,12 @@ class CoreOptimiser(torch.optim.Optimizer):
             denom = self.get_denom(state)
 
         return denom
-        
-    def rms_(self, tensor, rms_min):
-        rms = tensor.norm().div(tensor.numel() ** 0.5).clamp_min(rms_min)
-        return tensor.div_(rms)
 
+    def get_rms(self, tensor, eps=1e-8):
+        return tensor.norm().div(tensor.numel() ** 0.5).clamp_min(eps)
+
+    def rms_(self, tensor, eps):
+        return tensor.div_(self.get_rms(tensor, eps))
 
     @torch.no_grad()
     def step_param(self, p, group):

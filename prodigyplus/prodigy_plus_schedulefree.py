@@ -25,7 +25,7 @@ class ProdigyPlusScheduleFree(CoreOptimiser):
     ability for the optimiser to predict stepsizes. Gradient clipping/normalisation is already handled in the following configurations:
     
     1) `use_stableadamw=True,eps=1e8` (or any reasonable positive epsilon)
-    2) `eps=None` (Adam-atan2, scale invariant and can mess with Prodigy's stepsize calculations in some scenarios)
+    2) `eps=None` (Adam-atan2, scale invariant. Will disable StableAdamW if enabled.)
 
     By default, `split_groups` is set to `True`, so each parameter group will have its own adaptation values. So if you're training
     different networks together, they won't contaminate each other's learning rates. The disadvantage of this approach is that some 
@@ -233,13 +233,11 @@ class ProdigyPlusScheduleFree(CoreOptimiser):
         weight_sum = group['weight_sum']
         
         if p.grad is not None:
-            grad = p.grad.float()
-            rms_min = 1.0 if group['use_stableadamw'] else None
+            grad = p.grad.to(dtype=torch.float32, copy=True)
 
             state = self.initialise_state(p, group)
             y, z = p, state['z']
 
-            self.update_prodigy(state, group, grad, z)
             update = None
             
             if state['muon']:
@@ -258,13 +256,18 @@ class ProdigyPlusScheduleFree(CoreOptimiser):
                 else:
                     _, beta2 = group['betas']
                     denom = self.update_second_moment(state, group, grad, beta2, denom_before_update=use_adopt)
-                    update = self.update_(grad, denom, group)
+                    update, num_scale = self.update_(grad, denom, group)
                     del denom
 
             if update is not None:
-                if rms_min is not None:
-                    self.rms_(update, rms_min)
+                if group['use_stableadamw']:
+                    # Make sure Prodigy is aware we've scaled the update.
+                    num_scale = self.get_rms(update, 1.0).item()
+                    update.mul_(1 / num_scale)
+                elif group['eps'] is not None:
+                    num_scale = 1.0
 
+                self.update_prodigy(state, group, p.grad, z, num_scale)
 
                 if group['stochastic_rounding'] and y.dtype == z.dtype == torch.bfloat16:
                     y_fp32, z_fp32 = y.float(), z.float()
