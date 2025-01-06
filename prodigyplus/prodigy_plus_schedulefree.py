@@ -185,23 +185,40 @@ class ProdigyPlusScheduleFree(CoreOptimiser):
     @torch.no_grad()
     def update_params(self, y, z, update, group):
         dlr = self.get_dlr(group)
-        decay = group['weight_decay']
+        
         beta1, _ = group['betas']
+        decay = group['weight_decay']
 
-        weight = self.get_d_max(group) ** 2
+        weight = dlr ** 2
         weight_sum = group['weight_sum'] + weight
         ckp1 = weight / weight_sum if weight_sum else 0
 
-        y.lerp_(end=z, weight=ckp1)
+        xy_step = 1 - beta1 * (1 - ckp1)
 
-        # Weight decay at Y.
         if decay != 0:
+            # Weight decay at Y.
             if group['weight_decay_by_lr']:
-                decay *= dlr
-            y.sub_(y, alpha=decay * (1 - beta1))
-            z.sub_(y, alpha=decay)
+                # Reference implementation, where LR and decay are coupled and applied at once.
+                update.add_(y, alpha=decay)
+            else:
+                # "Fully" decoupled weight decay, applied separately. This could be done above as 
+                # decay / dlr, but best not to deal with extreme values.
+                y.sub_(y, alpha=decay * xy_step)
+                z.sub_(y, alpha=decay)
 
-        y.add_(update, alpha=dlr * (beta1 * (1 - ckp1) - 1))
+        if group['use_cautious']:
+            # "Cautious Optimizer (C-Optim): Improving Training with One Line of Code": https://github.com/kyleliang919/c-optim
+            # ScheduleFree implementation by nhamanasu: https://github.com/facebookresearch/schedule_free/pull/54
+            u = (y - z).mul_(ckp1).add_(update, alpha=dlr * xy_step)
+            mask = (u * update > 0).to(update.dtype)
+            mask.mul_(mask.numel() / (mask.sum() + 1))
+            u.mul_(mask)
+            y.sub_(u)
+            del mask, u
+        else:
+            y.lerp_(end=z, weight=ckp1)
+            y.sub_(update, alpha=dlr * xy_step)
+
         z.sub_(update, alpha=dlr)
 
         return weight_sum
@@ -217,7 +234,6 @@ class ProdigyPlusScheduleFree(CoreOptimiser):
         
         if p.grad is not None:
             grad = p.grad.float()
-            grad_mask = grad.clone() if group['use_cautious'] else None
             rms_min = 1.0 if group['use_stableadamw'] else None
 
             state = self.initialise_state(p, group)
@@ -247,9 +263,6 @@ class ProdigyPlusScheduleFree(CoreOptimiser):
                 if rms_min is not None:
                     self.rms_(update, rms_min)
 
-                if grad_mask is not None:
-                    self.cautious_(update, grad_mask)
-                    del grad_mask
 
                 if group['stochastic_rounding'] and y.dtype == z.dtype == torch.bfloat16:
                     y_fp32, z_fp32 = y.float(), z.float()

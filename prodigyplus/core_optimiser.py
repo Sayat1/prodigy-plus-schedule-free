@@ -429,21 +429,6 @@ class CoreOptimiser(torch.optim.Optimizer):
         rms = tensor.norm().div(tensor.numel() ** 0.5).clamp_min(rms_min)
         return tensor.div_(rms)
 
-    # "Cautious Optimizer (C-Optim): Improving Training with One Line of Code"
-    # https://github.com/kyleliang919/c-optim
-    # Modified version by Ross Wightman: https://x.com/wightmanr/status/1862226848475955442
-    def cautious_(self, update, grad):
-        mask = (grad * update > 0).to(dtype=grad.dtype)
-        mask.div_(mask.mean().clamp_min(1e-3))
-        update.mul_(mask)
-        del mask
-
-        return update
-    
-    def cautious_mask(self, update, grad):
-        mask = (grad * update > 0).to(dtype=grad.dtype)
-        mask.div_(mask.mean().clamp_min(1e-3))
-        return mask
 
     @torch.no_grad()
     def step_param(self, p, group):
