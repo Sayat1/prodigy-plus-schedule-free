@@ -37,6 +37,12 @@ class CoreOptimiser(torch.optim.Optimizer):
         if beta3 is None:
             beta3 = betas[1] ** 0.5
 
+        if eps is None:
+            print(f"[{self.__class__.__name__}] 'eps' is None, Adam-atan2 enabled.")
+            if use_stableadamw:
+                print(f"[{self.__class__.__name__}] 'use_stableadamw' has been disabled (mutually exclusive with Adam-atan2).")
+                use_stableadamw = False
+
         defaults = dict(lr=lr, betas=betas, beta3=beta3,
                         eps=eps,
                         weight_decay=weight_decay,
