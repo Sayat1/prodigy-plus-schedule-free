@@ -47,7 +47,7 @@ class CoreOptimiser(torch.optim.Optimizer):
                         eps=eps,
                         weight_decay=weight_decay,
                         weight_decay_by_lr=weight_decay_by_lr,
-                        d=d0, d0=d0, d_coef=d_coef,
+                        d=d0, d_prev=d0, d0=d0, d_coef=d_coef,
                         k=1, train_mode=True,
                         weight_sum=0,
                         prodigy_steps=prodigy_steps,
@@ -254,7 +254,7 @@ class CoreOptimiser(torch.optim.Optimizer):
             return
 
         d = group['d']
-        d0 = group['d0']
+        d_prev = group['d_prev']
         d_coef = group['d_coef']
         beta3 = group['beta3']
 
@@ -263,24 +263,28 @@ class CoreOptimiser(torch.optim.Optimizer):
         d_numerator = group['d_numerator']
         d_numerator *= beta3
 
+        d_prev = d
+       
         d_numerator_item = running_d_numerator.item()
         d_denom_item = running_d_denom.item()
 
         # Prevent the accumulation of negative values in the numerator in early training.
         # We still allow negative updates once progress starts being made, as this is 
         # important for regulating the adaptive stepsize.
-        if d_numerator_item > 0 or d > d0:
-            # Force Prodigy to be extremely confident before increasing the LR when
-            # gradient and weights are aligned.
-            d_numerator = 0 if d_numerator_item < 0 else d_numerator + d_numerator_item
 
-        if d_denom_item > 0:
-            d = max(math.atan2(d_coef * d_numerator, d_denom_item), d)
+        # Force Prodigy to be extremely confident before increasing the LR when gradient
+        # and weights drift.
+        if d_numerator_item <= 0:
+            d_numerator = min(d_numerator, d_numerator_item)
+        else:
+            d_numerator += d_numerator_item
+
+        d_hat = math.atan2(d_coef * d_numerator, d_denom_item)
+        d = max(d, d_hat)
 
         group['d'] = d
+        group['d_prev'] = d_prev
         group['d_numerator'] = d_numerator
-
-        # Used for logging purposes only.
         group['d_denom'] = d_denom_item
 
         running_d_numerator.zero_()
@@ -321,7 +325,6 @@ class CoreOptimiser(torch.optim.Optimizer):
                 self.update_d_and_reset(group)
 
             group['k'] = k + 1
-
             return True
 
         return False

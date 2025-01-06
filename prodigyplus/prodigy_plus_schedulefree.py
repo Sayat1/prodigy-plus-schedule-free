@@ -4,8 +4,7 @@ from .core_optimiser import CoreOptimiser
 class ProdigyPlusScheduleFree(CoreOptimiser):
     r"""
     An optimiser based on Prodigy that includes schedule-free logic. Has additional improvements in the form of optional StableAdamW 
-    gradient scaling and Adam-atan2 updates, per parameter group adaptation, lower memory utilisation, fused back pass support and 
-    tweaks to mitigate uncontrolled LR growth.
+    gradient scaling and Adam-atan2 updates, per parameter group adaptation, lower memory utilisation and fused back pass support.
 
     Based on code from:
     https://github.com/facebookresearch/schedule_free
@@ -27,13 +26,10 @@ class ProdigyPlusScheduleFree(CoreOptimiser):
     1) `use_stableadamw=True,eps=1e8` (or any reasonable positive epsilon)
     2) `eps=None` (Adam-atan2, scale invariant. Will disable StableAdamW if enabled.)
 
-    By default, `split_groups` is set to `True`, so each parameter group will have its own adaptation values. So if you're training
-    different networks together, they won't contaminate each other's learning rates. The disadvantage of this approach is that some 
-    networks can take a long time to reach a good learning rate when trained alongside others (for example, SDXL's Unet). 
-    It's recommended to use a higher `d0` (1e-5, 5e-5, 1e-4) so these networks don't get stuck at a low learning rate.
+    By default, `split_groups` and `split_groups_mean` are set to `True`, so each parameter group will have its own `d` values, however,
+    they will all use the harmonic mean for the dynamic learning rate. To make each group use its own dynamic LR, set `split_groups_mean` to False.
+    To use the reference Prodigy behaviour where all groups are combined, set `split_groups` to False. 
     
-    For Prodigy's reference behaviour, which lumps all parameter groups together, set `split_groups` to `False`.
-
     In some scenarios, it can be advantageous to freeze Prodigy's adaptive stepsize after a certain number of steps. This
     can be controlled via the `prodigy_steps` settings. This will also free any Prodigy-specific memory used by the
     optimiser (though with all the memory-related improvements, this should not be significant unless you're training
