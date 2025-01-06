@@ -34,10 +34,11 @@ Based on code from:
 * https://github.com/facebookresearch/schedule_free
 * https://github.com/konstmish/prodigy
 
-Incorporates improvements from these pull requests (credit to https://github.com/dxqbYD and https://github.com/sangoi-exe):
+Incorporates improvements from these pull requests (credit to https://github.com/dxqbYD, https://github.com/sangoi-exe and https://github.com/nhamanasu):
 * https://github.com/konstmish/prodigy/pull/23
 * https://github.com/konstmish/prodigy/pull/22
 * https://github.com/konstmish/prodigy/pull/20
+* https://github.com/facebookresearch/schedule_free/pull/54
 
 If you do use another scheduler, linear or cosine is preferred, as a restarting scheduler can confuse Prodigy's adaptation logic.
 
@@ -45,11 +46,11 @@ Leave `lr` set to 1 unless you encounter instability. Do not use with gradient c
 ability for the optimiser to predict stepsizes. Gradient clipping/normalisation is already handled in the following configurations:
 
 1) `use_stableadamw=True,eps=1e8` (or any reasonable positive epsilon. This is the default.)
-2) `eps=None` (Adam-atan2, scale invariant, but can mess with Prodigy's stepsize calculations in some scenarios.)
+2) `eps=None` (Adam-atan2, scale invariant. Will disable StableAdamW if enabled.)
 
-By default, `split_groups` is set to `True`, so each parameter group will have its own adaptation values. So if you're training
-different networks together, they won't contaminate each other's learning rates. For Prodigy's reference behaviour, which lumps all 
-parameter groups together, set `split_groups` to `False`.
+By default, `split_groups` and `split_groups_mean` are set to `True`, so each parameter group will have its own `d` values, however,
+they will all use the harmonic mean for the dynamic learning rate. To make each group use its own dynamic LR, set `split_groups_mean` to False.
+To use the reference Prodigy behaviour where all groups are combined, set `split_groups` to False. 
 
 The optimiser uses low-rank approximations for the second moment, much like Adafactor. There should be little to no difference 
 in training performance, but your mileage may vary. If you encounter problems, you can try disabling factorisation by 
@@ -57,7 +58,7 @@ setting `factored` to `False`.
 
 The optimiser also supports [fused backward pass](https://pytorch.org/tutorials/intermediate/optimizer_step_in_backward_tutorial.html) to significantly lower
 gradient memory usage. The `fused_back_pass` argument must be set to `True` so the optimiser knows not to perform the regular step. Please note however that 
-your training scripts / UI of choice *must* support the feature for generic optimisers -- as of December 2024, popular trainers such as OneTrainer and Kohya 
+your training scripts / UI of choice *must* support the feature for generic optimisers -- as of January 2025, popular trainers such as OneTrainer and Kohya 
 hard-code which optimisers have fused backward pass support, and so this optimiser's fused pass will not work out of the box with them.
 
 In some scenarios, it can be advantageous to freeze Prodigy's adaptive stepsize after a certain number of steps. This
@@ -70,34 +71,20 @@ Prodigy in particular will increase the LR forever if it is not stopped or cappe
 ## Experimental features
 
 **Adam-atan2:** Enabled by setting `eps` to `None`. Outlined in [Scaling Exponents Across Parameterizations and Optimizers](https://arxiv.org/abs/2407.05872), 
-you can use atan2 in place of the regular division plus epsilon found in most Adam-style optimisers. This makes updates scale-invariant, and removes the need to tweak the epsilon.
-This seems to work fine in some models (SDXL), but cripples Prodigy's stepsize calculations in others (SD3.5 Medium and Large). Disabled by default.
+you can use atan2 in place of the regular division plus epsilon found in most Adam-style optimisers. This makes updates scale-invariant, and removes the need 
+to tweak the epsilon. Disabled by default.
 
-**Orthogonalisation:** Enabled by setting `use_muon_pp` to `True`. This changes the base behaviour of the optimiser for compatible parameters from AdamW to SGD.
-[As explained by Keller Jordan](https://x.com/kellerjordan0/status/1844782418676339059), and demonstrated (in various forms) by optimisers such as Shampoo, SOAP 
-and Jordan's Muon, applying orthogonalisation/preconditioning can improve convergence. However, this approach may not work in some situations 
-(small batch sizes, fine-tuning) and as such, is disabled by default.
+**Muon:** Enabled by setting `use_muon_pp` to `True`. This changes the fundamental behaviour of the optimiser for compatible parameters from AdamW to SGD
+with a quasi-second moment based on the RMS of the updates. [As explained by Keller Jordan](https://x.com/kellerjordan0/status/1844782418676339059), and demonstrated 
+(in various forms) by optimisers such as Shampoo, SOAP and Jordan's Muon, applying preconditioning to the gradient can improve convergence. However, 
+this approach may not work in some situations (small batch sizes, fine-tuning) and as such, is disabled by default.
 
 **C-Optim:** Enabled by setting `use_cautious` to `True`. Outlined in [Cautious Optimizers: Improving Training with One Line of Code](https://arxiv.org/pdf/2411.16085). 
-Applies a simple modification to parameter updates that promotes values that are aligned with the current gradient. This should result in faster convergence. Note that
-the proposed changes are not 1:1 compatible with schedule-free, so more testing is required.
+Applies a simple modification to parameter updates that promotes values that are aligned with the current gradient. This should result in faster convergence. While not 1:1 compatible with schedule-free, [the implementation by nhamanasu](https://github.com/facebookresearch/schedule_free/pull/54) does work, though improvements may be limited.
 
 **ADOPT:** Enabled by setting `use_adopt` to `True`. A partial implementation of [ADOPT: Modified Adam Can Converge with Any β2 with the Optimal Rate](https://arxiv.org/abs/2411.02853), as we only update the second moment after the parameter update, so as to exclude the current gradient. Disabled by default.
 
 ## Recommended usage
- 
-The schedule-free component of the optimiser works best with a constant learning rate. In most cases, Prodigy will find the optimal learning rate within the first
-25% of training, after which it may continue to increase the learning rate beyond what's best (this is mostly observed with diffusion training).
 
-It is strongly recommended to set `prodigy_steps` equal to 25% of your
-total step count, though you can experiment with values as little as 5-10%, depending on the model and type of training. The best way to figure out the best value
-is to monitor the `d` value(s) during a training run.
-
-![image](https://github.com/user-attachments/assets/b68f0869-7232-4a2d-a396-e0f9ea21f63b)
-
-Here is an example of an SDXL LoRA run. From left to right are the `d` values (essentially the learning rate predicition) for TE1, TE2 and the Unet. 
-In this run, `prodigy_steps` was set to `20`, as the optimal LR was found around step 15.
-
-![image](https://github.com/user-attachments/assets/d3077b0d-5f23-4500-b2b3-fc0cf45d2da7)
-
-This image shows a different run with the same dataset, but with `prodigy_steps` set to `0`. While the text encoders were mostly stable, the Unet LR continued to grow throughout training.
+Earlier versions of the optimiser recommended setting `prodigy_steps` equal to 5-25% of your total step count, but this should not be necessary with recent updates. That said,
+you can still use the setting to make sure the LR does not change after a certain step, and free any memory used by Prodigy for adapting the step size.
