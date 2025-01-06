@@ -238,8 +238,12 @@ class ProdigyPlusScheduleFree(CoreOptimiser):
             state = self.initialise_state(p, group)
             y, z = p, state['z']
 
+            use_adopt = group['use_adopt']  
+            _, beta2 = group['betas']
+            k = group['k']
+
             update = None
-            
+
             if state['muon']:
                 grad = self.newton_schulz_(grad)
                 grad_rms = self.get_rms(grad).item() ** 2
@@ -249,12 +253,14 @@ class ProdigyPlusScheduleFree(CoreOptimiser):
 
                 update = grad.mul_(1.0 / ((rms_sq ** 0.5) + 1e-12))
             else:
-                use_adopt = group['use_adopt']
+                if group['use_bias_correction']:
+                    # Adafactor / PaLM beta2 decay. Clip beta2 as per Scaling ViT paper.
+                    beta2 = min(beta2, 1 - k ** -0.8)
+                    beta2 = (1 - beta2) / (1 - beta2 ** k)
 
                 if use_adopt and group['k'] == 1:
                     self.update_second_moment(state, group, grad, 0, return_denom=False)
                 else:
-                    _, beta2 = group['betas']
                     denom = self.update_second_moment(state, group, grad, beta2, denom_before_update=use_adopt)
                     update, num_scale = self.update_(grad, denom, group)
                     del denom

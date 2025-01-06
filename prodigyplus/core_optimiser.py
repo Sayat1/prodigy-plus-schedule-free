@@ -398,17 +398,12 @@ class CoreOptimiser(torch.optim.Optimizer):
 
     def update_second_moment(self, state, group, grad, beta2, return_denom=True, denom_before_update=False):
         exp_avg_sq = state['exp_avg_sq']
+
         denom = None
 
         if return_denom and denom_before_update:
             denom = self.get_denom(state)
 
-        # Adafactor / PaLM beta2 decay. Clip beta2 as per Scaling ViT paper.
-        if group['use_bias_correction']:
-            k = group['k']
-            debias = 1 - k ** -0.8
-            beta2 = min(beta2, 1 - ((1 - debias) / (1 - debias ** k)))
-   
         # Adam EMA updates
         if isinstance(exp_avg_sq, list):
             row_var, col_var, dr, dc, _ = exp_avg_sq
