@@ -202,9 +202,11 @@ class CoreOptimiser(torch.optim.Optimizer):
             sliced_data = self.get_sliced_tensor(p)
 
             # NOTE: We don't initialise z/exp_avg here -- subclass needs to do that.
-            state['muon'] = group['use_muon_pp'] and len(grad.shape) >= 2 and grad.size(0) < 10000
+            state['muon'] = group['use_muon_pp'] and len(grad.shape) >= 2
 
-            if not state['muon']:
+            if state['muon']:
+                state["rms_sq"] = 0
+            else:
                 factored_dims = self.factored_dims(
                     grad.shape,
                     factored=group['factored'],

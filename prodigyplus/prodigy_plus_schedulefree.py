@@ -243,11 +243,13 @@ class ProdigyPlusScheduleFree(CoreOptimiser):
             update = None
             
             if state['muon']:
-                rms_min = 1e-7
-                # Use high epsilon at start of training so
-                # Prodigy doesn't take forever to adapt the stepsize.
-                eps = max(rms_min, 0.2 ** group['k'] ** 0.5)
-                update = self.newton_schulz_(grad, eps=eps)
+                grad = self.newton_schulz_(grad)
+                grad_rms = self.get_rms(grad).item() ** 2
+
+                rms_sq = (state["rms_sq"] * beta2) + (grad_rms * (1 - beta2))
+                state["rms_sq"] = rms_sq
+
+                update = grad.mul_(1.0 / ((rms_sq ** 0.5) + 1e-12))
             else:
                 use_adopt = group['use_adopt']
 
