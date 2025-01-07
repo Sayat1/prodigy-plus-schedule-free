@@ -172,6 +172,18 @@ class CoreOptimiser(torch.optim.Optimizer):
         # copy the higher 16 bit into the target tensor
         target.copy_(result.view(dtype=torch.float32))
 
+    def smart_copy(self, target, source, stochastic_rounding, smart_delete_source):
+        if target is source:
+            return
+
+        if stochastic_rounding and target.dtype == torch.bfloat16 and source.dtype == torch.float32:
+            self.copy_stochastic_(target, source)
+        else:
+            target.copy_(source)
+
+        if smart_delete_source:
+            del source
+
     # Modified Adafactor factorisation implementation by Ross Wightman 
     # https://github.com/huggingface/pytorch-image-models/pull/2320
     @torch.no_grad()

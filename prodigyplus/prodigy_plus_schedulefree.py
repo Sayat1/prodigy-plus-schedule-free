@@ -118,8 +118,8 @@ class ProdigyPlusScheduleFree(CoreOptimiser):
         auto_train_eval (boolean):
             Attempts to automatically set the schedule-free part of the optimiser into train/eval modes before/after
             an optimiser step. This removes the need to do so manually for simple training pipelines. Set to False if 
-            you need direct control over the optimiser state for validation/evaluation. Refer to the reference implementation 
-            for more details: https://github.com/facebookresearch/schedule_free
+            you need direct control over the optimiser state for validation/evaluation. Refer to the reference 
+            implementation for more details: https://github.com/facebookresearch/schedule_free
             (default: True)
     """
     def __init__(self, params, lr=1.0,
@@ -240,12 +240,14 @@ class ProdigyPlusScheduleFree(CoreOptimiser):
         if p.grad is not None:
             grad = p.grad.to(dtype=torch.float32, copy=True)
 
-            state = self.initialise_state(p, group)
-            y, z = p, state['z']
-
             use_adopt = group['use_adopt']  
+            stochastic = group['stochastic_rounding']
             _, beta2 = group['betas']
             k = group['k']
+
+            state = self.initialise_state(p, group)
+            z_state = state['z']
+            y, z = (p.float(), z_state.float()) if stochastic else (p, z_state)
 
             update = None
 
@@ -278,19 +280,11 @@ class ProdigyPlusScheduleFree(CoreOptimiser):
                 elif group['eps'] is not None:
                     num_scale = 1.0
 
-                self.update_prodigy(state, group, p.grad, z, num_scale)
+                self.update_prodigy(state, group, p.grad, z_state, num_scale)
+                weight_sum = self.update_params(y, z, update, group)
 
-                if group['stochastic_rounding'] and y.dtype == z.dtype == torch.bfloat16:
-                    y_fp32, z_fp32 = y.float(), z.float()
-
-                    weight_sum = self.update_params(y_fp32, z_fp32, update, group)
-
-                    self.copy_stochastic_(y, y_fp32)
-                    self.copy_stochastic_(z, z_fp32)
-
-                    del y_fp32, z_fp32
-                else:
-                    weight_sum = self.update_params(y, z, update, group)
+                self.smart_copy(p, y, stochastic, True)
+                self.smart_copy(z_state, z, stochastic, True)
 
                 del update
 
