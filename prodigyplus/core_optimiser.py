@@ -19,8 +19,7 @@ class CoreOptimiser(torch.optim.Optimizer):
                  use_muon_pp=False,
                  use_cautious=False,
                  use_adopt=False,
-                 stochastic_rounding=True,
-                 auto_train_eval=True):
+                 stochastic_rounding=True):
 
         if not 0.0 < d0:
             raise ValueError("Invalid d0 value: {}".format(d0))
@@ -71,8 +70,6 @@ class CoreOptimiser(torch.optim.Optimizer):
 
         self.split_groups = split_groups
         self.split_groups_mean = split_groups_mean
-
-        self.auto_train_eval = auto_train_eval
 
         # Properties for fused backward pass.
         self.parameters_to_process = None
@@ -309,21 +306,11 @@ class CoreOptimiser(torch.optim.Optimizer):
         if self.parameters_to_process is None or self.parameters_to_process == 0:
             # Optimiser hasn't run yet (or is starting a new step), so initialise.
             self.parameters_to_process = sum(len(group['params']) for group in self.param_groups)
-
-            # Set the optimiser into train mode (if needed).
-            if self.auto_train_eval:
-                self.train()
     
     def on_end_step(self):
         self.parameters_to_process -= 1
 
         if self.parameters_to_process == 0:
-            # Assume that if we've processed all parameters this batch, the external pipeline may do some kind
-            # of evaluation or validation. Just in case, set optimiser into evaluation mode in case 
-            # the training pipeline fails to consistently do so (Kohya).
-            if self.auto_train_eval:
-                self.eval()
-
             # Update d for next optimiser step.
             if self.split_groups:
                 i = 0
