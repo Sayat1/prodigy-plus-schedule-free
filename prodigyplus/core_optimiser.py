@@ -294,18 +294,11 @@ class CoreOptimiser(torch.optim.Optimizer):
         running_d_denom.zero_()
 
     def on_start_step(self):
-        if self.parameters_to_process is None:
-            # Optimiser hasn't run yet, so initialise.
+        if self.parameters_to_process is None or self.parameters_to_process == 0:
+            # Optimiser hasn't run yet (or is starting a new step), so initialise.
             self.parameters_to_process = sum(len(group['params']) for group in self.param_groups)
 
             # Set the optimiser into train mode (if needed).
-            if self.auto_train_eval:
-                self.train()
-        elif self.parameters_to_process == 0:
-            # Start of new optimiser run, so update d.
-            self.parameters_to_process = sum(len(group['params']) for group in self.param_groups)
-
-            # Set the optimiser back into train mode (if needed).
             if self.auto_train_eval:
                 self.train()
     
