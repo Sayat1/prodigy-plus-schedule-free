@@ -144,7 +144,7 @@ class CoreOptimiser(torch.optim.Optimizer):
             X = X.T
 
         # Gradient scaling adaptation from: https://github.com/leloykun/adaptive-muon
-        X = torch.einsum('ij,ij,ab->ab', G.type_as(X), X, X)
+        X = torch.einsum('ij,ij->', G.type_as(X), X).clamp(-1.0, 1.0) * X
         G.copy_(X.view_as(G))
         del X
 
