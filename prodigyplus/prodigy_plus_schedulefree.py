@@ -115,6 +115,12 @@ class ProdigyPlusScheduleFree(CoreOptimiser):
             Use stochastic rounding for bfloat16 weights (https://github.com/pytorch/pytorch/issues/120376). Brings
             bfloat16 training performance close to that of float32.
             (default: True)
+        auto_train_eval (boolean):
+            Attempts to automatically set the schedule-free part of the optimiser into train/eval modes before/after
+            an optimiser step. This removes the need to do so manually for simple training pipelines. Set to False if 
+            you need direct control over the optimiser state for validation/evaluation. Refer to the reference implementation 
+            for more details: https://github.com/facebookresearch/schedule_free
+            (default: True)
     """
     def __init__(self, params, lr=1.0,
                  betas=(0.9, 0.99), beta3=None,
@@ -132,7 +138,8 @@ class ProdigyPlusScheduleFree(CoreOptimiser):
                  use_muon_pp=False,
                  use_cautious=False,
                  use_adopt=False,
-                 stochastic_rounding=True):
+                 stochastic_rounding=True,
+                 auto_train_eval=True):
         
         super().__init__(params=params, lr=lr, betas=betas, beta3=beta3,
                          weight_decay=weight_decay, weight_decay_by_lr=weight_decay_by_lr,
@@ -142,7 +149,8 @@ class ProdigyPlusScheduleFree(CoreOptimiser):
                          split_groups_mean=split_groups_mean, factored=factored,
                          fused_back_pass=fused_back_pass, use_stableadamw=use_stableadamw,
                          use_muon_pp=use_muon_pp, use_cautious=use_cautious, use_adopt=use_adopt,
-                         stochastic_rounding=stochastic_rounding)
+                         stochastic_rounding=stochastic_rounding,
+                         auto_train_eval=auto_train_eval)
 
     @torch.no_grad()
     def eval(self):
