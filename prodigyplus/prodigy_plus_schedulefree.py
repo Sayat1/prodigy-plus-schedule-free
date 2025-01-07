@@ -88,7 +88,8 @@ class ProdigyPlusScheduleFree(CoreOptimiser):
             if training results in NaNs or the learning rate fails to grow.
             (default: True)
         fused_back_pass (boolean):
-            Stops the optimiser from running the normal step method. Set to True if using fused backward pass.
+            Stops the optimiser from running the normal step method. Set to True if using fused backward pass. Really only
+            needed for scripts and UIs that call the regular step method even when using fused backward pass (OneTrainer).
             (default: False)
         use_stableadamw (boolean):
             Scales parameter updates by the root-mean-square of the normalised gradient, in essence identical to 
@@ -221,13 +222,13 @@ class ProdigyPlusScheduleFree(CoreOptimiser):
 
     @torch.no_grad()
     def step_param(self, p, group):
+        self.on_start_step()
+
         if not group['train_mode']:
             raise Exception("Not in train mode!")
 
-        self.on_start_step(group)
-
         weight_sum = group['weight_sum']
-        
+
         if p.grad is not None:
             grad = p.grad.to(dtype=torch.float32, copy=True)
 
@@ -285,5 +286,6 @@ class ProdigyPlusScheduleFree(CoreOptimiser):
 
                 del update
 
-        if self.on_end_step(group):
-            group['weight_sum'] = weight_sum
+        group['running_weight_sum'] = weight_sum
+        self.on_end_step()
+            

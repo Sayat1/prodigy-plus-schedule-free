@@ -72,7 +72,7 @@ class CoreOptimiser(torch.optim.Optimizer):
         self.split_groups_mean = split_groups_mean
 
         # Properties for fused backward pass.
-        self.groups_to_process = None
+        self.parameters_to_process = None
         self.shared_d = None
         self.fused_back_pass = fused_back_pass
 
@@ -290,44 +290,48 @@ class CoreOptimiser(torch.optim.Optimizer):
         running_d_numerator.zero_()
         running_d_denom.zero_()
 
-    def on_start_step(self, group):
-        if self.groups_to_process is None:
+    def on_start_step(self):
+        if self.parameters_to_process is None:
             # Optimiser hasn't run yet, so initialise.
-            self.groups_to_process = {i: len(group['params']) for i, group in enumerate(self.param_groups)}
-        elif len(self.groups_to_process) == 0:
-            # Start of new optimiser run, so grab updated d.
-            self.groups_to_process = {i: len(group['params']) for i, group in enumerate(self.param_groups)}
+            self.parameters_to_process = sum(len(group['params']) for group in self.param_groups)
+        elif self.parameters_to_process == 0:
+            # Start of new optimiser run, so update d.
+            self.parameters_to_process = sum(len(group['params']) for group in self.param_groups)
+    
+    def on_end_step(self):
+        self.parameters_to_process -= 1
 
-            if not self.split_groups:
-                # When groups aren't split, calculate d for the first group,
+        if self.parameters_to_process == 0:
+
+            # Update d for next optimiser step.
+            if self.split_groups:
+                i = 0
+                for group in self.param_groups:
+                    if group['prodigy_steps'] > 0 and group['k'] == group['prodigy_steps']:
+                        print(f"[{self.__class__.__name__}] Prodigy stepsize adaptation disabled after {group['k']} steps for param_group {i}.")
+
+                    self.update_d_and_reset(group)
+                    group['weight_sum'] = group.get('running_weight_sum', 0)
+                    group['k'] += 1
+                    i += 1
+
+                self.shared_d = self.get_d_mean()
+            else:
+                # When groups aren't split, calculate d for the first group (which collects stats for all groups in non-split mode), 
                 # then copy to all other groups.
-                self.update_d_and_reset(group)
-                for g in self.param_groups:
-                    g['d'] = group['d']
+                self.update_d_and_reset(self.param_groups[0])
+                d = self.param_groups[0]['d']
 
-            self.shared_d = self.get_d_mean()
+                i = 0
+                for group in self.param_groups:
+                    if group['prodigy_steps'] > 0 and group['k'] == group['prodigy_steps']:
+                        print(f"[{self.__class__.__name__}] Prodigy stepsize adaptation disabled after {group['k']} steps for param_group {i}.")
 
-    def on_end_step(self, group):
-        group_index = self.param_groups.index(group)
+                    group['d'] = d
+                    group['weight_sum'] = group.get('running_weight_sum', 0)
+                    group['k'] += 1
+                    i += 1
 
-        # Decrement params processed so far.
-        self.groups_to_process[group_index] -= 1
-
-        # End of param loop for group, update calculations.
-        if self.groups_to_process[group_index] == 0:
-            k = group['k']
-            prodigy_steps = group['prodigy_steps']
-            if prodigy_steps > 0 and k == prodigy_steps:
-                print(f"[{self.__class__.__name__}] Prodigy stepsize adaptation disabled after {k} steps for param_group {group_index}.")
-
-            self.groups_to_process.pop(group_index)
-            if self.split_groups: # When groups are split, calculate per-group d.
-                self.update_d_and_reset(group)
-
-            group['k'] = k + 1
-            return True
-
-        return False
 
     def get_dlr(self, group):
         return (self.shared_d if self.split_groups and self.shared_d else group['d']) * group['lr']
