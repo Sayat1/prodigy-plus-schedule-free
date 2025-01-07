@@ -246,8 +246,6 @@ class ProdigyPlusScheduleFree(CoreOptimiser):
             k = group['k']
 
             state = self.initialise_state(p, group)
-            z_state = state['z']
-            y, z = (p.float(), z_state.float()) if stochastic else (p, z_state)
 
             update = None
 
@@ -280,7 +278,10 @@ class ProdigyPlusScheduleFree(CoreOptimiser):
                 elif group['eps'] is not None:
                     num_scale = 1.0
 
+                z_state = state['z']
                 self.update_prodigy(state, group, p.grad, z_state, num_scale)
+
+                y, z = (p.float(), z_state.float()) if stochastic else (p, z_state)
                 weight_sum = self.update_params(y, z, update, group)
 
                 self.smart_copy(p, y, stochastic, True)
