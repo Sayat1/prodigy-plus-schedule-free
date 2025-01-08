@@ -265,7 +265,7 @@ class ProdigyPlusScheduleFree(CoreOptimiser):
             if update is not None:
                 if group['use_stableadamw']:
                     # Make sure Prodigy is aware we've scaled the update.
-                    num_scale = self.get_rms(update, 1.0).item()
+                    num_scale = max(1, self.get_rms(update, 1.0).item() * 0.5)
                     update.mul_(1 / num_scale)
                 elif group['eps'] is not None:
                     num_scale = 1.0
