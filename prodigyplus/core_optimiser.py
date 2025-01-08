@@ -448,20 +448,25 @@ class CoreOptimiser(torch.optim.Optimizer):
         if return_denom and denom_before_update:
             denom = self.get_denom(state)
 
+        # Apply stronger decay to the second moment if d increased during
+        # the last step. This has a similar effect to scaling 
+        # all updates by d.
+        d_k = group['d_prev'] / group['d']
+
         # Adam EMA updates
         if isinstance(exp_avg_sq, list):
             row_var, col_var, dr, dc, _ = exp_avg_sq
 
-            row_var.lerp_(
+            row_var.mul_(beta2 * d_k).add_(
                 grad.norm(dim=dr, keepdim=True).square_().div_(grad.shape[dr]),
-                weight=1 - beta2
+                alpha=1 - beta2
             )
-            col_var.lerp_(
+            col_var.mul_(beta2 * d_k).add_(
                 grad.norm(dim=dc, keepdim=True).square_().div_(grad.shape[dc]),
-                weight=1 - beta2
+                alpha=1 - beta2
             )
         else:
-            exp_avg_sq.mul_(beta2).addcmul_(grad, grad, value=1 - beta2)
+            exp_avg_sq.mul_(beta2 * d_k).addcmul_(grad, grad, value=1 - beta2)
 
         if return_denom and denom is None:
             denom = self.get_denom(state)
