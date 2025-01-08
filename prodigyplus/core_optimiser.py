@@ -43,6 +43,35 @@ class CoreOptimiser(torch.optim.Optimizer):
                 print(f"[{self.__class__.__name__}] 'use_stableadamw' has been disabled (mutually exclusive with Adam-atan2).")
                 use_stableadamw = False
 
+        if fused_back_pass:
+            try:
+                # Import and patching will fail if not Kohya.
+                import library.adafactor_fused
+
+                # Get the original method so we can restore it later.
+                original_patch_adafactor_fused = library.adafactor_fused.patch_adafactor_fused
+
+                # Define the override.
+                def prodigy_patch_adafactor_fused(optimizer):
+                    if hasattr(optimizer, "optimizer"):
+                        # If the optimiser is wrapped, forward the calls to the actual optimiser.
+                        def _step(self, *args, **kwargs):
+                            return self.optimizer.step(*args, **kwargs)
+
+                        def _step_param(self, *args, **kwargs):
+                            return self.optimizer.step_param(*args, **kwargs)
+
+                        optimizer.step = _step.__get__(optimizer)
+                        optimizer.step_param = _step_param.__get__(optimizer)
+
+                    print(f"[{self.__class__.__name__}] Kohya pipeline detected with fused backward pass. Gradient hook patch successful.")
+                    library.adafactor_fused.patch_adafactor_fused = original_patch_adafactor_fused # Restore the original method.
+
+                # Patch the method.
+                library.adafactor_fused.patch_adafactor_fused = prodigy_patch_adafactor_fused
+            except:
+                pass
+
         defaults = dict(lr=lr, betas=betas, beta3=beta3,
                         eps=eps,
                         weight_decay=weight_decay,
