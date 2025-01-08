@@ -405,13 +405,17 @@ class CoreOptimiser(torch.optim.Optimizer):
         eps = group['eps']
 
         if eps is None:
+            # Normalise atan range (4 / math.pi).
+            atan_scale = 1.2732395
+
             # Approximate scaling for a regular Adam-style update.
             scaling_factor = (self.get_rms(num) / self.get_rms(denom)).item()
+            scaling_factor = max(1, (scaling_factor * 0.5) ** (atan_scale ** 0.5))
 
             # Adam-atan2. Use atan2 rather than epsilon and division 
             # for parameter updates (https://arxiv.org/abs/2407.05872).
             # Has the nice property of "clipping" the gradient as well.
-            update = num.atan2_(denom)
+            update = num.atan2_(denom).mul_(atan_scale)
         else:
             update = num.div_(denom.add_(eps))
             scaling_factor = 1.0
