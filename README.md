@@ -17,8 +17,8 @@ optimizer = ProdigyPlusScheduleFree(model.parameters(), lr=1.0, betas=(0.9, 0.99
 				    prodigy_steps=0, eps=1e-8, 
 				    split_groups=True, split_groups_mean=True,
  				    factored=True, fused_back_pass=False, use_stableadamw=True,
- 				    use_muon_pp=False, use_cautious=False, use_adopt=False, 
-				    stochastic_rounding=True)
+ 				    use_muon_pp=False, use_cautious=False, use_grams=False,
+                                    use_adopt=False, stochastic_rounding=True)
 ```
 
 As with the reference implementation of schedule-free, a constant scheduler should be used, along with the appropriate
@@ -81,6 +81,9 @@ this approach may not work in some situations (small batch sizes, fine-tuning) a
 
 **C-Optim:** Enabled by setting `use_cautious` to `True`. Outlined in [Cautious Optimizers: Improving Training with One Line of Code](https://arxiv.org/pdf/2411.16085). 
 Applies a simple modification to parameter updates that promotes values that are aligned with the current gradient. This should result in faster convergence. While not 1:1 compatible with schedule-free, [the implementation by nhamanasu](https://github.com/facebookresearch/schedule_free/pull/54) does work, though improvements may be limited.
+
+**Grams:** Enabled by setting `use_grams` to `True`. Described in [Grams: Gradient Descent with Adaptive Momentum Scaling](https://arxiv.org/abs/2412.17107). 
+In a similar vein to C-Optim, the parameter update is modified to separate the update direction from momentum. Thanks to [gesen2egee for the pull request](https://github.com/LoganBooker/prodigy-plus-schedule-free/pull/5).
 
 **ADOPT:** Enabled by setting `use_adopt` to `True`. A partial implementation of [ADOPT: Modified Adam Can Converge with Any β2 with the Optimal Rate](https://arxiv.org/abs/2411.02853), as we only update the second moment after the parameter update, so as to exclude the current gradient. Disabled by default.
 
