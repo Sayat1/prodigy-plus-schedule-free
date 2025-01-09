@@ -18,6 +18,7 @@ class CoreOptimiser(torch.optim.Optimizer):
                  use_stableadamw=True,
                  use_muon_pp=False,
                  use_cautious=False,
+                 use_grams=False,
                  use_adopt=False,
                  stochastic_rounding=True):
 
@@ -87,6 +88,7 @@ class CoreOptimiser(torch.optim.Optimizer):
                         use_stableadamw=use_stableadamw,
                         use_muon_pp=use_muon_pp,
                         use_cautious=use_cautious,
+                        use_grams=use_grams,
                         use_adopt=use_adopt,
                         stochastic_rounding=stochastic_rounding)
 

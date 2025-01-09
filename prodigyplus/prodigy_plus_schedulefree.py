@@ -106,6 +106,12 @@ class ProdigyPlusScheduleFree(CoreOptimiser):
             access to a first moment, so this deviates from the paper (we apply the mask directly to the update).
             May have a limited effect.
             (default: False)
+        use_grams (boolean):
+            Experimental. Perform "grams" updates, as proposed in https://arxiv.org/abs/2412.17107. Modifies 
+            the update using sign operations that align with the current gradient. Note that we do not have
+            access to a first moment, so this deviates from the paper (we apply the sign directly to the update).
+            May have a limited effect.
+            (default: False)            
         use_adopt (boolean):
             Experimental. Performs a modified step where the second moment is updated after the parameter update,
             so as not to include the current gradient in the denominator. This is a partial implementation of ADOPT 
@@ -131,6 +137,7 @@ class ProdigyPlusScheduleFree(CoreOptimiser):
                  use_stableadamw=True,
                  use_muon_pp=False,
                  use_cautious=False,
+                 use_grams=False,
                  use_adopt=False,
                  stochastic_rounding=True):
         
@@ -141,8 +148,8 @@ class ProdigyPlusScheduleFree(CoreOptimiser):
                          eps=eps, split_groups=split_groups,
                          split_groups_mean=split_groups_mean, factored=factored,
                          fused_back_pass=fused_back_pass, use_stableadamw=use_stableadamw,
-                         use_muon_pp=use_muon_pp, use_cautious=use_cautious, use_adopt=use_adopt,
-                         stochastic_rounding=stochastic_rounding)
+                         use_muon_pp=use_muon_pp, use_cautious=use_cautious, use_grams=use_grams, 
+                         use_adopt=use_adopt, stochastic_rounding=stochastic_rounding)
 
     @torch.no_grad()
     def eval(self):
@@ -212,6 +219,14 @@ class ProdigyPlusScheduleFree(CoreOptimiser):
             u.mul_(mask)
             y.sub_(u)
             del mask, u
+
+        if group['use_grams']:
+            # "Grams: Gradient Descent with Adaptive Momentum Scaling": https://arxiv.org/abs/2412.17107
+            u = (y - z).mul_(ckp1).add_(update, alpha=dlr * xy_step)
+            u.copy_(torch.sign(update) * u.abs())
+            y.sub_(u)
+            del u
+
         else:
             y.lerp_(end=z, weight=ckp1)
             y.sub_(update, alpha=dlr * xy_step)
