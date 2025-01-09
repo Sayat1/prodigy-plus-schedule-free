@@ -202,13 +202,10 @@ class ProdigyPlusScheduleFree(CoreOptimiser):
         if decay != 0:
             # Weight decay at Y.
             if group['weight_decay_by_lr']:
-                # Reference implementation, where LR and decay are coupled and applied at once.
-                update.add_(y, alpha=decay)
-            else:
-                # "Fully" decoupled weight decay, applied separately. This could be done above as 
-                # decay / dlr, but best not to deal with extreme values.
-                y.sub_(y, alpha=decay * xy_step)
-                z.sub_(y, alpha=decay)
+                decay *= dlr
+
+            y.sub_(y, alpha=decay * xy_step)
+            z.sub_(y, alpha=decay)
 
         if group['use_cautious']:
             # "Cautious Optimizer (C-Optim): Improving Training with One Line of Code": https://github.com/kyleliang919/c-optim
