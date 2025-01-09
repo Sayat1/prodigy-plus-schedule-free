@@ -427,10 +427,9 @@ class CoreOptimiser(torch.optim.Optimizer):
             # Has the nice property of "clipping" the gradient as well.
             update = num.atan2_(denom.mul_(b)).mul_(a)
         else:
-            scaling_factor = 1.0
             update = num.div_(denom.add_(eps))
 
-        return update, scaling_factor
+        return update, 1.0
 
     def get_denom(self, state):
         exp_avg_sq = state['exp_avg_sq']
