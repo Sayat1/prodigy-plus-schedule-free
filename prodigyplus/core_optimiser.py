@@ -362,15 +362,17 @@ class CoreOptimiser(torch.optim.Optimizer):
             else:
                 # When groups aren't split, calculate d for the first group (which collects stats for all groups in non-split mode), 
                 # then copy to all other groups.
-                self.update_d_and_reset(self.param_groups[0])
-                d = self.param_groups[0]['d']
-
+                first_group = self.param_groups[0]
+                self.update_d_and_reset(first_group)
+                
                 i = 0
                 for group in self.param_groups:
                     if group['prodigy_steps'] > 0 and group['k'] == group['prodigy_steps']:
                         print(f"[{self.__class__.__name__}] Prodigy stepsize adaptation disabled after {group['k']} steps for param_group {i}.")
 
-                    group['d'] = d
+                    group['d'] = first_group['d']
+                    group['d_numerator'] = first_group['d_numerator']
+                    group['d_denom'] = first_group['d_denom']
                     group['weight_sum'] = group.get('running_weight_sum', 0)
                     group['k'] += 1
                     i += 1
