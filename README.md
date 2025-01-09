@@ -87,6 +87,26 @@ In a similar vein to C-Optim, the parameter update is modified to separate the u
 
 **ADOPT:** Enabled by setting `use_adopt` to `True`. A partial implementation of [ADOPT: Modified Adam Can Converge with Any β2 with the Optimal Rate](https://arxiv.org/abs/2411.02853), as we only update the second moment after the parameter update, so as to exclude the current gradient. Disabled by default.
 
+## MNIST results
+Generated from the [MNIST example in the schedule-free repository](https://github.com/facebookresearch/schedule_free/tree/main/examples/mnist), using the default settings.
+```
+Prodigy LR: 0.000832
+Test set: Average loss: 0.0472, Accuracy: 9836/10000 (98.36%)
+Test set: Average loss: 0.0345, Accuracy: 9879/10000 (98.79%)
+Test set: Average loss: 0.0305, Accuracy: 9905/10000 (99.05%)
+Test set: Average loss: 0.0295, Accuracy: 9912/10000 (99.12%)
+Test set: Average loss: 0.0296, Accuracy: 9916/10000 (99.16%)
+Test set: Average loss: 0.0295, Accuracy: 9921/10000 (99.21%)
+Test set: Average loss: 0.0305, Accuracy: 9916/10000 (99.16%)
+Test set: Average loss: 0.0300, Accuracy: 9915/10000 (99.15%)
+Test set: Average loss: 0.0305, Accuracy: 9917/10000 (99.17%)
+Test set: Average loss: 0.0310, Accuracy: 9919/10000 (99.19%)
+Test set: Average loss: 0.0326, Accuracy: 9923/10000 (99.23%)
+Test set: Average loss: 0.0338, Accuracy: 9928/10000 (99.28%)
+Test set: Average loss: 0.0345, Accuracy: 9925/10000 (99.25%)
+Test set: Average loss: 0.0354, Accuracy: 9925/10000 (99.25%)
+```
+
 ## Recommended usage
 
 Earlier versions of the optimiser recommended setting `prodigy_steps` equal to 5-25% of your total step count, but this should not be necessary with recent updates. That said,
