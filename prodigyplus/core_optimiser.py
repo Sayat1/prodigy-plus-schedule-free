@@ -285,7 +285,7 @@ class CoreOptimiser(torch.optim.Optimizer):
                 state['p0'] = torch.tensor(0.0, dtype=dtype, device=p.device)
 
             state['s'] = torch.zeros_like(sliced_data, memory_format=torch.preserve_format, dtype=dtype).detach()
-        
+
         return state, needs_init
 
     @torch.no_grad()
@@ -385,6 +385,9 @@ class CoreOptimiser(torch.optim.Optimizer):
         
         if prodigy_steps <= 0 or k < prodigy_steps:
             beta3 = group['beta3']
+            d, d0 = group['d'], group['d0']
+
+            d_k = (d ** 2) / (d0 ** 0.5)
 
             sliced_grad = self.get_sliced_tensor(grad)
             sliced_data = self.get_sliced_tensor(data)
@@ -394,9 +397,9 @@ class CoreOptimiser(torch.optim.Optimizer):
             s = state['s']
 
             x0_minus = state['p0'] - sliced_data
-            running_d_numerator.add_(torch.dot(sliced_grad, x0_minus), alpha=num_scale)
+            running_d_numerator.add_(torch.dot(sliced_grad, x0_minus), alpha=d_k * num_scale)
 
-            s.mul_(beta3).add_(sliced_grad)
+            s.mul_(beta3).add_(sliced_grad, alpha=d_k)
             running_d_denom.add_(s.abs().sum())
             del x0_minus
         elif 's' in state: # Free the memory used by Prodigy, as we no longer need it.
@@ -405,6 +408,7 @@ class CoreOptimiser(torch.optim.Optimizer):
 
     def update_(self, num, denom, group):
         eps = group['eps']
+        d = group['d']
 
         if eps is None:
             # Normalise atan range (4 / math.pi).
@@ -453,26 +457,21 @@ class CoreOptimiser(torch.optim.Optimizer):
 
         if return_denom and denom_before_update:
             denom = self.get_denom(state)
-
-        # Apply stronger decay to the second moment if d increased during
-        # the last step. This has a similar effect to scaling 
-        # all updates by d.
-        d_k = group['d_prev'] / group['d']
-
+        
         # Adam EMA updates
         if isinstance(exp_avg_sq, list):
             row_var, col_var, dr, dc, _ = exp_avg_sq
 
-            row_var.mul_(beta2 * d_k).add_(
+            row_var.lerp_(
                 grad.norm(dim=dr, keepdim=True).square_().div_(grad.shape[dr]),
-                alpha=1 - beta2
+                weight=1 - beta2
             )
-            col_var.mul_(beta2 * d_k).add_(
+            col_var.lerp_(
                 grad.norm(dim=dc, keepdim=True).square_().div_(grad.shape[dc]),
-                alpha=1 - beta2
+                weight=1 - beta2
             )
         else:
-            exp_avg_sq.mul_(beta2 * d_k).addcmul_(grad, grad, value=1 - beta2)
+            exp_avg_sq.mul_(beta2).addcmul_(grad, grad, value=1 - beta2)
 
         if return_denom and denom is None:
             denom = self.get_denom(state)

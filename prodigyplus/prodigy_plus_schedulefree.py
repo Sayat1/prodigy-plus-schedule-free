@@ -140,7 +140,7 @@ class ProdigyPlusScheduleFree(CoreOptimiser):
                  use_grams=False,
                  use_adopt=False,
                  stochastic_rounding=True):
-        
+
         super().__init__(params=params, lr=lr, betas=betas, beta3=beta3,
                          weight_decay=weight_decay, weight_decay_by_lr=weight_decay_by_lr,
                          use_bias_correction=use_bias_correction,
@@ -185,7 +185,7 @@ class ProdigyPlusScheduleFree(CoreOptimiser):
             state['z'] = p.detach().clone(memory_format=torch.preserve_format)
         
         return state
-    
+
     @torch.no_grad()
     def update_params(self, y, z, update, group):
         dlr = self.get_dlr(group)
