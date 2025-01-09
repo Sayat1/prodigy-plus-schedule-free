@@ -393,8 +393,10 @@ class CoreOptimiser(torch.optim.Optimizer):
             beta3 = group['beta3']
             d, d0 = group['d'], group['d0']
 
-            d_k = (d ** 2) / (d0 ** 0.5)
-
+            # Slow down, rather than speed up, as we approach the
+            # appropriate LR.
+            d_k = (d0 / d) * d
+            
             sliced_grad = self.get_sliced_tensor(grad)
             sliced_data = self.get_sliced_tensor(data)
 
@@ -414,23 +416,19 @@ class CoreOptimiser(torch.optim.Optimizer):
 
     def update_(self, num, denom, group):
         eps = group['eps']
-        d = group['d']
 
         if eps is None:
-            # Normalise atan range (4 / math.pi).
-            atan_scale = 1.2732395
-
             # Approximate scaling for a regular Adam-style update.
-            scaling_factor = (self.get_rms(num) / self.get_rms(denom)).item()
-            scaling_factor = max(1, (scaling_factor * 0.5) ** (atan_scale ** 0.5))
+            b = self.get_clip_threshold(group)
+            a = 1 / math.atan(1 / b)
 
             # Adam-atan2. Use atan2 rather than epsilon and division 
             # for parameter updates (https://arxiv.org/abs/2407.05872).
             # Has the nice property of "clipping" the gradient as well.
-            update = num.atan2_(denom).mul_(atan_scale)
+            update = num.atan2_(denom.mul_(b)).mul_(a)
         else:
-            update = num.div_(denom.add_(eps))
             scaling_factor = 1.0
+            update = num.div_(denom.add_(eps))
 
         return update, scaling_factor
 
@@ -489,6 +487,9 @@ class CoreOptimiser(torch.optim.Optimizer):
 
     def rms_(self, tensor, eps):
         return tensor.div_(self.get_rms(tensor, eps))
+
+    def get_clip_threshold(self, group):
+        return max(1, 8 * (0.99 ** (group['k'] - 1)))
 
     @torch.no_grad()
     def step_param(self, p, group):

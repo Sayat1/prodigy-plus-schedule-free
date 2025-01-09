@@ -274,14 +274,12 @@ class ProdigyPlusScheduleFree(CoreOptimiser):
 
             if update is not None:
                 if group['use_stableadamw']:
-                    # Make sure Prodigy is aware we've scaled the update.
-                    num_scale = max(1, self.get_rms(update, 1.0).item() * 0.5)
+                    clip_threshold = self.get_clip_threshold(group)
+                    num_scale = max(1, self.get_rms(update, 1.0).item() / clip_threshold)
                     update.mul_(1 / num_scale)
-                elif group['eps'] is not None:
-                    num_scale = 1.0
 
                 z_state = state['z']
-                self.update_prodigy(state, group, p.grad, z_state, num_scale)
+                self.update_prodigy(state, group, p.grad, z_state, 1.0)
 
                 y, z = (p.float(), z_state.float()) if stochastic else (p, z_state)
                 weight_sum = self.update_params(y, z, update, group)
