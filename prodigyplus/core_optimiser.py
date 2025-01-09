@@ -35,15 +35,6 @@ class CoreOptimiser(torch.optim.Optimizer):
         if beta3 is not None and not 0.0 <= beta3 < 1.0:
             raise ValueError("Invalid beta3 parameter: {}".format(beta3))
 
-        if beta3 is None:
-            beta3 = betas[1] ** 0.5
-
-        if eps is None:
-            print(f"[{self.__class__.__name__}] 'eps' is None, Adam-atan2 enabled.")
-            if use_stableadamw:
-                print(f"[{self.__class__.__name__}] 'use_stableadamw' has been disabled (mutually exclusive with Adam-atan2).")
-                use_stableadamw = False
-
         if fused_back_pass:
             try:
                 # Import and patching will fail if not Kohya.
@@ -72,6 +63,19 @@ class CoreOptimiser(torch.optim.Optimizer):
                 library.adafactor_fused.patch_adafactor_fused = prodigy_patch_adafactor_fused
             except:
                 pass
+
+        if beta3 is None:
+            beta3 = betas[1] ** 0.5
+
+        if eps is None:
+            print(f"[{self.__class__.__name__}] 'eps' is None, Adam-atan2 enabled.")
+            if use_stableadamw:
+                print(f"[{self.__class__.__name__}] 'use_stableadamw' has been disabled (mutually exclusive with Adam-atan2).")
+                use_stableadamw = False
+
+        if use_cautious and use_grams:
+            print(f"[{self.__class__.__name__}] 'use_grams' has been disabled (mutually exclusive with 'use_cautious').")
+            use_grams = False
 
         defaults = dict(lr=lr, betas=betas, beta3=beta3,
                         eps=eps,
