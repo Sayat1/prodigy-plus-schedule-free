@@ -321,8 +321,7 @@ class CoreOptimiser(torch.optim.Optimizer):
         if self.parameters_to_process == 0:
             # Update d for next optimiser step.
             if self.split_groups:
-                i = 0
-                for group in self.param_groups:
+                for i, group in enumerate(self.param_groups):
                     if group['prodigy_steps'] > 0 and group['k'] == group['prodigy_steps']:
                         print(f"[{self.__class__.__name__}] Prodigy stepsize adaptation disabled after {group['k']} steps for param_group {i}.")
 
@@ -338,8 +337,7 @@ class CoreOptimiser(torch.optim.Optimizer):
                 first_group = self.param_groups[0]
                 self.update_d_and_reset(first_group)
                 
-                i = 0
-                for group in self.param_groups:
+                for i, group in enumerate(self.param_groups):
                     if group['prodigy_steps'] > 0 and group['k'] == group['prodigy_steps']:
                         print(f"[{self.__class__.__name__}] Prodigy stepsize adaptation disabled after {group['k']} steps for param_group {i}.")
 
