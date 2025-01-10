@@ -271,17 +271,17 @@ class ProdigyPlusScheduleFree(CoreOptimiser):
                     self.update_second_moment(state, group, grad, 0, return_denom=False)
                 else:
                     denom = self.update_second_moment(state, group, grad, beta2, denom_before_update=use_adopt)
-                    update, num_scale = self.update_(grad, denom, group)
+                    update = self.update_(grad, denom, group)
                     del denom
 
             if update is not None:
                 if group['use_stableadamw']:
                     clip_threshold = self.get_clip_threshold(group)
-                    num_scale = max(1, self.get_rms(update, 1.0).item() / clip_threshold)
-                    update.mul_(1 / num_scale)
+                    rms = self.get_rms(update, 1).div(clip_threshold).clamp_min(1)
+                    update.mul_(1 / rms)
 
                 z_state = state['z']
-                self.update_prodigy(state, group, p.grad, z_state, 1.0)
+                self.update_prodigy(state, group, p.grad, z_state)
 
                 y, z = (p.float(), z_state.float()) if stochastic else (p, z_state)
                 weight_sum = self.update_params(y, z, update, group)

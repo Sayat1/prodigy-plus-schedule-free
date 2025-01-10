@@ -354,22 +354,13 @@ class CoreOptimiser(torch.optim.Optimizer):
     def get_dlr(self, group):
         return (self.shared_d if self.split_groups and self.shared_d else group['d']) * group['lr']
 
-    def update_prodigy(self, state, group, grad, data, num_scale):
-        # num_scale is used to compensate the numerator calculations when
-        # clipping/scaling is applied to the incoming update. If we don't
-        # do this, it will dampen Prodigy's 'd' predictions.
-
+    def update_prodigy(self, state, group, grad, data):
         k = group['k']
         prodigy_steps = group['prodigy_steps']
         
         if prodigy_steps <= 0 or k < prodigy_steps:
             beta3 = group['beta3']
-            d, d0 = group['d'], group['d0']
 
-            # Slow down, rather than speed up, as we approach the
-            # appropriate LR.
-            d_k = (d0 / d) * d
-            
             sliced_grad = self.get_sliced_tensor(grad)
             sliced_data = self.get_sliced_tensor(data)
 
@@ -378,9 +369,9 @@ class CoreOptimiser(torch.optim.Optimizer):
             s = state['s']
 
             x0_minus = state['p0'] - sliced_data
-            running_d_numerator.add_(torch.dot(sliced_grad, x0_minus), alpha=d_k * num_scale)
+            running_d_numerator.add_(torch.dot(sliced_grad, x0_minus))
 
-            s.mul_(beta3).add_(sliced_grad, alpha=d_k)
+            s.mul_(beta3).add_(sliced_grad)
             running_d_denom.add_(s.abs().sum())
             del x0_minus
         elif 's' in state: # Free the memory used by Prodigy, as we no longer need it.
@@ -402,7 +393,7 @@ class CoreOptimiser(torch.optim.Optimizer):
         else:
             update = num.div_(denom.add_(eps))
 
-        return update, 1.0
+        return update
 
     def get_denom(self, state):
         exp_avg_sq = state['exp_avg_sq']
