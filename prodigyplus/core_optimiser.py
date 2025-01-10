@@ -35,34 +35,7 @@ class CoreOptimiser(torch.optim.Optimizer):
         if beta3 is not None and not 0.0 <= beta3 < 1.0:
             raise ValueError("Invalid beta3 parameter: {}".format(beta3))
 
-        if fused_back_pass:
-            try:
-                # Import and patching will fail if not Kohya.
-                import library.adafactor_fused
-
-                # Get the original method so we can restore it later.
-                original_patch_adafactor_fused = library.adafactor_fused.patch_adafactor_fused
-
-                # Define the override.
-                def prodigy_patch_adafactor_fused(optimizer):
-                    if hasattr(optimizer, "optimizer"):
-                        # If the optimiser is wrapped, forward the calls to the actual optimiser.
-                        def _step(self, *args, **kwargs):
-                            return self.optimizer.step(*args, **kwargs)
-
-                        def _step_param(self, *args, **kwargs):
-                            return self.optimizer.step_param(*args, **kwargs)
-
-                        optimizer.step = _step.__get__(optimizer)
-                        optimizer.step_param = _step_param.__get__(optimizer)
-
-                    print(f"[{self.__class__.__name__}] Kohya pipeline detected with fused backward pass. Gradient hook patch successful.")
-                    library.adafactor_fused.patch_adafactor_fused = original_patch_adafactor_fused # Restore the original method.
-
-                # Patch the method.
-                library.adafactor_fused.patch_adafactor_fused = prodigy_patch_adafactor_fused
-            except:
-                pass
+        self.try_hook_kohya_fbp()
 
         if beta3 is None:
             beta3 = betas[1] ** 0.5
@@ -490,6 +463,59 @@ class CoreOptimiser(torch.optim.Optimizer):
     def get_clip_threshold(self, group):
         return max(1, 8 * (0.99 ** (group['k'] - 1)))
 
+    def try_hook_kohya_fbp(self):
+        self.kohya_original_patch_adafactor_fused = None
+
+        try:
+            # Import and patching will fail if not Kohya.
+            import library.adafactor_fused
+
+            # Get the original method so we can restore it later.
+            self.kohya_original_patch_adafactor_fused = library.adafactor_fused.patch_adafactor_fused
+
+            # Define the override.
+            def prodigy_patch_adafactor_fused(optimizer):
+                unwrapped_optimiser = None
+                if hasattr(optimizer, "optimizer"):
+                    # If the optimiser is wrapped, forward the calls to the actual optimiser.
+                    def _step(self, *args, **kwargs):
+                        return self.optimizer.step(*args, **kwargs)
+
+                    def _step_param(self, *args, **kwargs):
+                        return self.optimizer.step_param(*args, **kwargs)
+
+                    optimizer.step = _step.__get__(optimizer)
+                    optimizer.step_param = _step_param.__get__(optimizer)
+                    unwrapped_optimiser = optimizer.optimizer
+                else:
+                    unwrapped_optimiser = optimizer
+               
+                print(f"[{self.__class__.__name__}] Kohya pipeline detected with fused backward pass. Gradient hook patch successful.")
+                library.adafactor_fused.patch_adafactor_fused = unwrapped_optimiser.kohya_original_patch_adafactor_fused # Restore the original method.
+
+                unwrapped_optimiser.fused_back_pass = True
+                unwrapped_optimiser.kohya_original_patch_adafactor_fused = None
+
+            # Patch the method.
+            library.adafactor_fused.patch_adafactor_fused = prodigy_patch_adafactor_fused
+        except:
+            pass
+
+    def try_unhook_kohya_fbp(self):
+        if self.kohya_original_patch_adafactor_fused is None:
+            return
+
+        try:
+            # Import and patching will fail if not Kohya.
+            import library.adafactor_fused
+
+            # User did not opt for fused backward pass, so remove our hook.
+            library.adafactor_fused.patch_adafactor_fused = self.kohya_original_patch_adafactor_fused
+        except:
+            pass
+
+        self.kohya_original_patch_adafactor_fused = None
+
     @torch.no_grad()
     def step_param(self, p, group):
         raise Exception("Not implemented!")            
@@ -500,6 +526,8 @@ class CoreOptimiser(torch.optim.Optimizer):
 
     @torch.no_grad()
     def step(self, closure=None):
+        self.try_unhook_kohya_fbp()
+
         if self.fused_back_pass:
             return
         
