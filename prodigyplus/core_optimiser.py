@@ -439,11 +439,11 @@ class CoreOptimiser(torch.optim.Optimizer):
             row_var, col_var, dr, dc, _ = exp_avg_sq
 
             row_var.lerp_(
-                grad.norm(dim=dr, keepdim=True).square_().div_(grad.shape[dr]),
+                grad.norm(dim=dr, keepdim=True).square_().mul_(1 / grad.shape[dr]),
                 weight=1 - beta2
             )
             col_var.lerp_(
-                grad.norm(dim=dc, keepdim=True).square_().div_(grad.shape[dc]),
+                grad.norm(dim=dc, keepdim=True).square_().mul_(1 / grad.shape[dc]),
                 weight=1 - beta2
             )
         else:
