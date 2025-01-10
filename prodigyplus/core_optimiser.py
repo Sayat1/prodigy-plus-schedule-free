@@ -453,7 +453,13 @@ class CoreOptimiser(torch.optim.Optimizer):
         return tensor.div_(self.get_rms(tensor, eps))
 
     def get_clip_threshold(self, group):
-        return max(1, 8 * (0.99 ** (group['k'] - 1)))
+        # Prodigy works best with unscaled gradients during early steps. 
+        # Decay the clip threshold over the first x steps.
+        clip_threshold, steps = 8, 200
+        k_t = 1 - min(1, (group['k'] - 1) / steps)
+        
+        # Smoothstep, which is basically cosine-annealing.
+        return 1 + (clip_threshold - 1) * (3 * k_t ** 2 - 2 * k_t ** 3)
 
     def try_hook_kohya_fbp(self):
         self.kohya_original_patch_adafactor_fused = None
