@@ -411,34 +411,35 @@ class CoreOptimiser(torch.optim.Optimizer):
 
         return denom
    
-    def update_first_moment(self, state, group, grad):
+    def update_first_moment(self, state, group, grad, beta1):
         exp_avg = state['exp_avg']
-        beta1, _ = group['betas']
+        d_k = group['d_prev'] / group['d']
 
-        return exp_avg.mul_(beta1).add_(grad, alpha=1 - beta1)
+        return exp_avg.mul_(beta1 * d_k).add_(grad, weight=1 - beta1)
 
     def update_second_moment(self, state, group, grad, beta2, return_denom=True, denom_before_update=False):
         exp_avg_sq = state['exp_avg_sq']
+        d_k = group['d_prev'] / group['d']
 
         denom = None
 
         if return_denom and denom_before_update:
             denom = self.get_denom(state)
-        
+
         # Adam EMA updates
         if isinstance(exp_avg_sq, list):
             row_var, col_var, dr, dc, _ = exp_avg_sq
 
-            row_var.lerp_(
+            row_var.mul_(beta2 * d_k * d_k).add_(
                 grad.norm(dim=dr, keepdim=True).square_().mul_(1 / grad.shape[dr]),
-                weight=1 - beta2
+                alpha=1 - beta2
             )
-            col_var.lerp_(
+            col_var.mul_(beta2 * d_k * d_k).add_(
                 grad.norm(dim=dc, keepdim=True).square_().mul_(1 / grad.shape[dc]),
-                weight=1 - beta2
+                alpha=1 - beta2
             )
         else:
-            exp_avg_sq.mul_(beta2).addcmul_(grad, grad, value=1 - beta2)
+            exp_avg_sq.mul_(beta2 * d_k * d_k).addcmul_(grad, grad, value=1 - beta2)
 
         if return_denom and denom is None:
             denom = self.get_denom(state)
