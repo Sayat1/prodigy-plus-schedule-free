@@ -207,21 +207,23 @@ class ProdigyPlusScheduleFree(CoreOptimiser):
             y.sub_(y, alpha=decay * xy_step)
             z.sub_(y, alpha=decay)
 
-        if group['use_cautious']:
-            # "Cautious Optimizer (C-Optim): Improving Training with One Line of Code": https://github.com/kyleliang919/c-optim
-            # ScheduleFree implementation by nhamanasu: https://github.com/facebookresearch/schedule_free/pull/54
+        cautious, grams = group['use_cautious'], group['use_grams']
+
+        if cautious or grams:
             u = (y - z).mul_(ckp1).add_(update, alpha=dlr * xy_step)
             z.sub_(update, alpha=dlr)
-            mask = (u * update > 0).to(update.dtype)
-            mask.mul_(mask.numel() / (mask.sum() + 1))
-            u.mul_(mask)
+
+            if cautious:
+                # "Cautious Optimizer (C-Optim): Improving Training with One Line of Code": https://github.com/kyleliang919/c-optim
+                # ScheduleFree implementation by nhamanasu: https://github.com/facebookresearch/schedule_free/pull/54
+                mask = update.mul_(u).sign_().clamp_min_(0)
+                mask.mul_(mask.numel() / mask.sum().add(1))
+                u.mul_(mask)
+            elif grams:
+                # "Grams: Gradient Descent with Adaptive Momentum Scaling": https://arxiv.org/abs/2412.17107
+                u.abs_().mul_(update.sign_())
+
             y.sub_(u)
-            del mask, u
-        elif group['use_grams']:
-            # "Grams: Gradient Descent with Adaptive Momentum Scaling": https://arxiv.org/abs/2412.17107
-            u = (y - z).mul_(ckp1).add_(update, alpha=dlr * xy_step)
-            z.sub_(update, alpha=dlr) # Update z now so we can do sign in-place.
-            y.sub_(u.abs_().mul_(update.sign_()))
             del u
         else:
             y.lerp_(end=z, weight=ckp1)
