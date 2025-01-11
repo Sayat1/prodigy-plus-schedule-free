@@ -135,10 +135,11 @@ class CoreOptimiser(torch.optim.Optimizer):
     @torch.no_grad()
     def newton_schulz_(self, G, steps=6, eps=1e-7):
         # Inline reshaping step within the method itself.
-        X = G.view(G.size(0), -1)
+        G_shape = G.shape
+        G = G.view(G.size(0), -1)
 
         a, b, c = (3.4445, -4.7750,  2.0315)
-        X = X.to(dtype=torch.bfloat16, copy=True)
+        X = G.to(dtype=torch.bfloat16, copy=True)
         if G.size(0) > G.size(1):
             X = X.T
 
@@ -153,10 +154,10 @@ class CoreOptimiser(torch.optim.Optimizer):
 
         # Gradient scaling adaptation from: https://github.com/leloykun/adaptive-muon
         X = torch.einsum('ij,ij->', G.type_as(X), X).clamp(-1.0, 1.0) * X
-        G.copy_(X.view_as(G))
+        G.copy_(X)
         del X
 
-        return G
+        return G.view(G_shape)
     
     # Implementation by Nerogar. From: https://github.com/pytorch/pytorch/issues/120376#issuecomment-1974828905
     def copy_stochastic_(self, target, source):
