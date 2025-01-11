@@ -453,9 +453,9 @@ class CoreOptimiser(torch.optim.Optimizer):
     def get_clip_threshold(self, group):
         # Prodigy works best with unscaled gradients during early steps. 
         # Decay the clip threshold over the first x steps.
-        clip_threshold, steps = 8, 200
+        clip_threshold, steps = 5, 50
         k_t = 1 - min(1, (group['k'] - 1) / steps)
-        
+
         # Smoothstep, which is basically cosine-annealing.
         return 1 + (clip_threshold - 1) * (3 * k_t ** 2 - 2 * k_t ** 3)
 
