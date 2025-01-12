@@ -255,15 +255,13 @@ class ProdigyPlusScheduleFree(CoreOptimiser):
         weight_sum = group['weight_sum']
 
         if p.grad is not None:
-            grad = self.orthograd(p) if group['use_orthograd'] else p.grad
-            grad = grad.to(dtype=torch.float32, copy=True)
-
-            use_adopt = group['use_adopt']  
+            use_adopt = group['use_adopt']
             stochastic = group['stochastic_rounding']
             _, beta2 = group['betas']
             k = group['k']
 
             state = self.initialise_state(p, group)
+            grad = self.orthograd(p) if group['use_orthograd'] and not state['muon'] else p.grad.to(dtype=torch.float32, copy=True)
             update = None
 
             if state['muon']:
