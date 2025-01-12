@@ -14,6 +14,7 @@ class CoreOptimiser(torch.optim.Optimizer):
                  split_groups=True,
                  split_groups_mean=True,
                  factored=True,
+                 factored_fp32=True,
                  fused_back_pass=False,
                  use_stableadamw=True,
                  use_muon_pp=False,
@@ -63,6 +64,7 @@ class CoreOptimiser(torch.optim.Optimizer):
                         d_numerator=0.0,
                         d_denom=0,
                         factored=factored,
+                        factored_fp32=factored_fp32,
                         use_stableadamw=use_stableadamw,
                         use_muon_pp=use_muon_pp,
                         use_cautious=use_cautious,
@@ -264,12 +266,11 @@ class CoreOptimiser(torch.optim.Optimizer):
                     col_shape = list(p.grad.shape)
                     col_shape[dc] = 1
                     reduce_dc = dc - 1 if dc > dr else dc
-                    # Store reduction variables so we don't have to recalculate each step.
-                    # Always store second moment low ranks in fp32 to avoid precision issues. Memory difference 
-                    # between bf16/fp16 and fp32 is negligible here.
-                    state["exp_avg_sq"] = [torch.zeros(row_shape, dtype=torch.float32, device=p.device).detach(), 
-                                            torch.zeros(col_shape, dtype=torch.float32, device=p.device).detach(), 
-                                            dr, dc, reduce_dc]
+
+                    factored_dtype = torch.float32 if group['factored_fp32'] else p.dtype
+                    state["exp_avg_sq"] = [torch.zeros(row_shape, dtype=factored_dtype, device=p.device).detach(), 
+                                           torch.zeros(col_shape, dtype=factored_dtype, device=p.device).detach(), 
+                                           dr, dc, reduce_dc]
                 else:
                     state['exp_avg_sq'] = torch.zeros_like(p, memory_format=torch.preserve_format).detach()
 

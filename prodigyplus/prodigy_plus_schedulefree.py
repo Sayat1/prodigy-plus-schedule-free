@@ -87,6 +87,12 @@ class ProdigyPlusScheduleFree(CoreOptimiser):
             Use factored approximation of the second moment, similar to Adafactor. Reduces memory usage. Disable
             if training results in NaNs or the learning rate fails to grow.
             (default: True)
+        factored_fp32 (boolean):
+            Force the use of float32 for the factored second moment. Because the factorisation is an approximation, it can
+            be beneficial to use high precision to avoid stability issues. However, if you're training in lower precision 
+            for short durations, setting this to False will slightly reduce memory usage. 
+            Ignored if factored is False.
+            (default: True)
         fused_back_pass (boolean):
             Stops the optimiser from running the normal step method. Set to True if using fused backward pass. Really only
             needed for scripts and UIs that call the regular step method even when using fused backward pass (OneTrainer).
@@ -137,6 +143,7 @@ class ProdigyPlusScheduleFree(CoreOptimiser):
                  split_groups=True,
                  split_groups_mean=True,
                  factored=True,
+                 factored_fp32=True,
                  fused_back_pass=False,
                  use_stableadamw=True,
                  use_muon_pp=False,
@@ -151,7 +158,7 @@ class ProdigyPlusScheduleFree(CoreOptimiser):
                          use_bias_correction=use_bias_correction,
                          d0=d0, d_coef=d_coef, prodigy_steps=prodigy_steps,
                          eps=eps, split_groups=split_groups,
-                         split_groups_mean=split_groups_mean, factored=factored,
+                         split_groups_mean=split_groups_mean, factored=factored, factored_fp32=factored_fp32,
                          fused_back_pass=fused_back_pass, use_stableadamw=use_stableadamw,
                          use_muon_pp=use_muon_pp, use_cautious=use_cautious, use_grams=use_grams, 
                          use_adopt=use_adopt, use_orthograd=use_orthograd, 
