@@ -117,6 +117,10 @@ class ProdigyPlusScheduleFree(CoreOptimiser):
             so as not to include the current gradient in the denominator. This is a partial implementation of ADOPT 
             (https://arxiv.org/abs/2411.02853), as we don't have a first moment to use for the update.
             (default: False)
+        use_orthograd (boolean):
+            Experimental. Updates weights using the component of the gradient that is orthogonal to the current 
+            weight direction, as described in "Grokking at the Edge of Numerical Stability" (https://arxiv.org/pdf/2501.04697).
+            (default: False)
         stochastic_rounding (boolean):
             Use stochastic rounding for bfloat16 weights (https://github.com/pytorch/pytorch/issues/120376). Brings
             bfloat16 training performance close to that of float32.
@@ -139,6 +143,7 @@ class ProdigyPlusScheduleFree(CoreOptimiser):
                  use_cautious=False,
                  use_grams=False,
                  use_adopt=False,
+                 use_orthograd=False,
                  stochastic_rounding=True):
 
         super().__init__(params=params, lr=lr, betas=betas, beta3=beta3,
@@ -149,7 +154,8 @@ class ProdigyPlusScheduleFree(CoreOptimiser):
                          split_groups_mean=split_groups_mean, factored=factored,
                          fused_back_pass=fused_back_pass, use_stableadamw=use_stableadamw,
                          use_muon_pp=use_muon_pp, use_cautious=use_cautious, use_grams=use_grams, 
-                         use_adopt=use_adopt, stochastic_rounding=stochastic_rounding)
+                         use_adopt=use_adopt, use_orthograd=use_orthograd, 
+                         stochastic_rounding=stochastic_rounding)
 
     @torch.no_grad()
     def eval(self):
@@ -242,7 +248,8 @@ class ProdigyPlusScheduleFree(CoreOptimiser):
         weight_sum = group['weight_sum']
 
         if p.grad is not None:
-            grad = p.grad.to(dtype=torch.float32, copy=True)
+            grad = self.orthograd(p) if group['use_orthograd'] else p.grad
+            grad = grad.to(dtype=torch.float32, copy=True)
 
             use_adopt = group['use_adopt']  
             stochastic = group['stochastic_rounding']

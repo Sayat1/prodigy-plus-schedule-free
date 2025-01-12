@@ -20,6 +20,7 @@ class CoreOptimiser(torch.optim.Optimizer):
                  use_cautious=False,
                  use_grams=False,
                  use_adopt=False,
+                 use_orthograd=False,
                  stochastic_rounding=True):
 
         if not 0.0 < d0:
@@ -67,6 +68,7 @@ class CoreOptimiser(torch.optim.Optimizer):
                         use_cautious=use_cautious,
                         use_grams=use_grams,
                         use_adopt=use_adopt,
+                        use_orthograd=use_orthograd,
                         stochastic_rounding=stochastic_rounding)
 
         super().__init__(params, defaults)
@@ -159,6 +161,21 @@ class CoreOptimiser(torch.optim.Optimizer):
 
         return G.view(G_shape)
     
+    # Implementation from: https://github.com/LucasPrietoAl/grokking-at-the-edge-of-numerical-stability/blob/main/orthograd.py
+    def orthograd(self, p):
+        w = p.view(-1)
+        g = p.grad.view(-1)
+
+        w_norm_sq = torch.dot(w, w) + 1e-30
+        proj = torch.dot(w, g) / w_norm_sq
+        g_orth = g - proj * w
+
+        g_norm = g.norm(2)
+        g_orth_norm = g_orth.norm(2) + 1e-30
+        g_orth_scaled = g_orth.mul_(g_norm / g_orth_norm)
+
+        return g_orth_scaled.view_as(p.grad)
+
     # Implementation by Nerogar. From: https://github.com/pytorch/pytorch/issues/120376#issuecomment-1974828905
     def copy_stochastic_(self, target, source):
         # create a random 16 bit integer
