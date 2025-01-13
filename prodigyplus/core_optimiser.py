@@ -397,12 +397,11 @@ class CoreOptimiser(torch.optim.Optimizer):
         if eps is None:
             # Approximate scaling for a regular Adam-style update.
             b = self.get_clip_threshold(group)
-            a = 1 / math.atan(1 / b)
 
             # Adam-atan2. Use atan2 rather than epsilon and division 
             # for parameter updates (https://arxiv.org/abs/2407.05872).
             # Has the nice property of "clipping" the gradient as well.
-            update = num.atan2_(denom.mul_(b)).mul_(a)
+            update = num.atan2_(denom.mul_(b)).mul_(b)
         else:
             update = num.div_(denom.add_(eps))
 
@@ -466,12 +465,11 @@ class CoreOptimiser(torch.optim.Optimizer):
         return tensor.div_(self.get_rms(tensor, eps))
 
     def get_clip_threshold(self, group):
-        # Prodigy works best with unscaled gradients during early steps. 
-        # Decay the clip threshold over the first x steps.
-        clip_threshold, steps = 10, 5
-        k_t = min(1, (group['k'] - 1) / steps)
+        # Prodigy works best with unscaled gradients during early steps.
+        if group['d'] <= group['d0']:
+            return 50
 
-        return 1 + (clip_threshold - 1) * (1 - k_t ** 2)
+        return 1
 
     def try_hook_kohya_fbp(self):
         self.kohya_original_patch_adafactor_fused = None
