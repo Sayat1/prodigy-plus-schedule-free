@@ -73,6 +73,11 @@ class ProdigyPlusScheduleFree(CoreOptimiser):
             Freeze Prodigy stepsize adjustments after a certain optimiser step and releases all state memory required
             by Prodigy.
             (default: 0)
+        use_speed (boolean):
+            Highly experimental. Signed Prodigy with ExponEntial D. This decouples the adaptive stepsize calculations from 
+            the magnitude of the weights and gradient. This can provide faster, more accurate LRs in some scenarios, 
+            but may fail in situations where the optimal LR is very close to (or less than) d0.
+            (default: False):
         split_groups (boolean):
             Track individual adaptation values for each parameter group. For example, if training
             a text encoder beside a Unet. Note this can have a significant impact on training dynamics.
@@ -140,6 +145,7 @@ class ProdigyPlusScheduleFree(CoreOptimiser):
                  use_bias_correction=False,
                  d0=1e-6, d_coef=1.0,
                  prodigy_steps=0,
+                 use_speed=False,
                  eps=1e-8,
                  split_groups=True,
                  split_groups_mean=True,
@@ -157,7 +163,7 @@ class ProdigyPlusScheduleFree(CoreOptimiser):
         super().__init__(params=params, lr=lr, betas=betas, beta3=beta3,
                          weight_decay=weight_decay, weight_decay_by_lr=weight_decay_by_lr,
                          use_bias_correction=use_bias_correction,
-                         d0=d0, d_coef=d_coef, prodigy_steps=prodigy_steps,
+                         d0=d0, d_coef=d_coef, prodigy_steps=prodigy_steps, use_speed=use_speed,
                          eps=eps, split_groups=split_groups,
                          split_groups_mean=split_groups_mean, factored=factored, factored_fp32=factored_fp32,
                          fused_back_pass=fused_back_pass, use_stableadamw=use_stableadamw,
@@ -203,11 +209,11 @@ class ProdigyPlusScheduleFree(CoreOptimiser):
     @torch.no_grad()
     def update_params(self, y, z, update, group):
         dlr = self.get_dlr(group)
-        
+
         beta1, _ = group['betas']
         decay = group['weight_decay']
 
-        weight = dlr
+        weight = dlr ** 2
         weight_sum = group['weight_sum'] + weight
         ckp1 = weight / weight_sum if weight_sum else 0
 
@@ -267,13 +273,15 @@ class ProdigyPlusScheduleFree(CoreOptimiser):
 
             if state['muon']:
                 grad = self.newton_schulz_(grad)
-                grad_rms = self.get_rms(grad).item() ** 2
-
-                d_k = group['d_prev'] / group['d']
-                rms_sq = (state["rms_sq"] * beta2 * d_k * d_k) + (grad_rms * (1 - beta2))
-                state["rms_sq"] = rms_sq
-
-                update = grad.mul_(1.0 / ((rms_sq ** 0.5) + 1e-8))
+                if group['use_speed']:
+                    grad_rms = state['rms_sq']
+                    if grad_rms is None:
+                        grad_rms = state['rms_sq'] = 1 / self.get_rms(grad)
+                    update = grad.mul_(rms_sq)
+                else:
+                    d_k = group['d_prev'] / group['d']
+                    rms_sq = state["rms_sq"].mul_(beta2 * d_k * d_k).add_(self.get_rms(grad).square(), alpha=1 - beta2)
+                    update = grad.mul_(1 / rms_sq.sqrt().add(1e-8))
             else:
                 if group['use_bias_correction']:
                     # Adafactor / PaLM beta2 decay. Clip beta2 as per Scaling ViT paper.

@@ -10,6 +10,7 @@ class CoreOptimiser(torch.optim.Optimizer):
                  use_bias_correction=False,
                  d0=1e-6, d_coef=1.0,
                  prodigy_steps=0,
+                 use_speed=False,
                  eps=1e-8,
                  split_groups=True,
                  split_groups_mean=True,
@@ -60,6 +61,7 @@ class CoreOptimiser(torch.optim.Optimizer):
                         k=1, train_mode=True,
                         weight_sum=0,
                         prodigy_steps=prodigy_steps,
+                        use_speed=use_speed,
                         use_bias_correction=use_bias_correction,
                         d_numerator=0.0,
                         d_denom=0,
@@ -247,7 +249,7 @@ class CoreOptimiser(torch.optim.Optimizer):
             state['muon'] = group['use_muon_pp'] and len(grad.shape) >= 2
 
             if state['muon']:
-                state["rms_sq"] = 0
+                state["rms_sq"] = None if group['use_speed'] else torch.tensor(0.0, dtype=dtype, device=p.device)
             else:
                 factored_dims = self.factored_dims(
                     grad.shape,
@@ -256,6 +258,7 @@ class CoreOptimiser(torch.optim.Optimizer):
                 )
 
                 if factored_dims is not None:
+                    # Store reduction variables so we don't have to recalculate each step.
                     dc, dr = factored_dims
                     row_shape = list(p.grad.shape)
                     row_shape[dr] = 1
@@ -315,6 +318,8 @@ class CoreOptimiser(torch.optim.Optimizer):
             d_numerator += d_numerator_item
 
         d_hat = math.atan2(d_coef * d_numerator, d_denom_item)
+        if group['use_speed']:
+            d_hat = min(d_hat, d ** 0.95)
         d = max(d, d_hat)
 
         group['d'] = d
@@ -372,6 +377,7 @@ class CoreOptimiser(torch.optim.Optimizer):
         prodigy_steps = group['prodigy_steps']
         
         if prodigy_steps <= 0 or k < prodigy_steps:
+            d = group['d']
             beta3 = group['beta3']
 
             sliced_grad = self.get_sliced_tensor(grad)
@@ -382,9 +388,17 @@ class CoreOptimiser(torch.optim.Optimizer):
             s = state['s']
 
             x0_minus = state['p0'] - sliced_data
-            running_d_numerator.add_(torch.dot(sliced_grad, x0_minus))
+            x0_dot = torch.dot(sliced_grad, x0_minus)
 
-            s.mul_(beta3).add_(sliced_grad)
+            if group['use_speed']:
+                d_update = d * d
+                x0_dot, sliced_grad = x0_dot.sign(), sliced_grad.sign()
+            else:
+                d_update = d ** 0.5
+
+            running_d_numerator.add_(x0_dot, alpha=d_update)
+
+            s.mul_(beta3).add_(sliced_grad, alpha=d_update)
             running_d_denom.add_(s.abs().sum())
             del x0_minus
         elif 's' in state: # Free the memory used by Prodigy, as we no longer need it.
@@ -466,7 +480,7 @@ class CoreOptimiser(torch.optim.Optimizer):
 
     def get_clip_threshold(self, group):
         # Prodigy works best with unscaled gradients during early steps.
-        if group['d'] <= group['d0']:
+        if not group['use_speed'] and group['d'] <= group['d0']:
             return 50
 
         return 1
