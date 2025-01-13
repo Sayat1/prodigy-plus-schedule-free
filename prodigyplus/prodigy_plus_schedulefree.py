@@ -277,7 +277,7 @@ class ProdigyPlusScheduleFree(CoreOptimiser):
                     grad_rms = state['rms_sq']
                     if grad_rms is None:
                         grad_rms = state['rms_sq'] = 1 / self.get_rms(grad)
-                    update = grad.mul_(rms_sq)
+                    update = grad.mul_(grad_rms)
                 else:
                     d_k = group['d_prev'] / group['d']
                     rms_sq = state["rms_sq"].mul_(beta2 * d_k * d_k).add_(self.get_rms(grad).square(), alpha=1 - beta2)
