@@ -126,6 +126,7 @@ class ProdigyPlusScheduleFree(CoreOptimiser):
         use_orthograd (boolean):
             Experimental. Updates weights using the component of the gradient that is orthogonal to the current 
             weight direction, as described in "Grokking at the Edge of Numerical Stability" (https://arxiv.org/pdf/2501.04697).
+            Can help prevent overfitting and improve generalisation.
             (default: False)
         stochastic_rounding (boolean):
             Use stochastic rounding for bfloat16 weights (https://github.com/pytorch/pytorch/issues/120376). Brings
