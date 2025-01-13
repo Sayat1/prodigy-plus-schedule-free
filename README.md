@@ -14,7 +14,7 @@ from prodigyplus.prodigy_plus_schedulefree import ProdigyPlusScheduleFree
 optimizer = ProdigyPlusScheduleFree(model.parameters(), lr=1.0, betas=(0.9, 0.99), beta3=None, 
                                     weight_decay=0.0, weight_decay_by_lr=True, 
 				    use_bias_correction=False, d0=1e-6, d_coef=1.0, 
-				    prodigy_steps=0, eps=1e-8, 
+				    prodigy_steps=0, use_speed=False, eps=1e-8, 
 				    split_groups=True, split_groups_mean=True,
  				    factored=True, fused_back_pass=False, use_stableadamw=True,
  				    use_muon_pp=False, use_cautious=False, use_grams=False,
@@ -86,6 +86,13 @@ Applies a simple modification to parameter updates that promotes values that are
 In a similar vein to C-Optim, the parameter update is modified to separate the update direction from momentum. Thanks to [gesen2egee for the pull request](https://github.com/LoganBooker/prodigy-plus-schedule-free/pull/5).
 
 **ADOPT:** Enabled by setting `use_adopt` to `True`. A partial implementation of [ADOPT: Modified Adam Can Converge with Any β2 with the Optimal Rate](https://arxiv.org/abs/2411.02853), as we only update the second moment after the parameter update, so as to exclude the current gradient. Disabled by default.
+
+**OrthoGrad:** Enabled by setting `use_orthograd` to `True`. Updates weights using the component of the gradient that is orthogonal to the current weight direction, as described in [Grokking at the Edge of Numerical Stability](https://arxiv.org/pdf/2501.04697). Can help prevent overfitting and improve generalisation. Ignored
+for parameters using Muon.
+
+**SPEED:** Enabled by setting `use_speed` to `True`. Something of my own creation I've dubbed "Signed Prodigy with ExponEntial D", or SPEED. Prodigy is very
+dependent on the magnitude of weights, updates and the gradient, which makes it very difficult to apply other types of optimisations to it. This is my attempt to
+decouple Prodigy's LR adaptation from these magnitudes by using just the sign instead, along with a capped growth rate.
 
 ## MNIST results
 Generated from the [MNIST example in the schedule-free repository](https://github.com/facebookresearch/schedule_free/tree/main/examples/mnist), using the default settings.
