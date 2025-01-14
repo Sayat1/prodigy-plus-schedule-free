@@ -16,9 +16,9 @@ optimizer = ProdigyPlusScheduleFree(model.parameters(), lr=1.0, betas=(0.9, 0.99
 				    use_bias_correction=False, d0=1e-6, d_coef=1.0, 
 				    prodigy_steps=0, use_speed=False, eps=1e-8, 
 				    split_groups=True, split_groups_mean=True,
- 				    factored=True, fused_back_pass=False, use_stableadamw=True,
- 				    use_muon_pp=False, use_cautious=False, use_grams=False,
-                                    use_adopt=False, stochastic_rounding=True)
+ 				    factored=True, factored_fp32=True, fused_back_pass=False,
+                                    use_stableadamw=True, use_muon_pp=False, use_cautious=False,
+				    use_grams=False, use_adopt=False, stochastic_rounding=True)
 ```
 
 As with the reference implementation of schedule-free, a constant scheduler should be used, along with the appropriate
@@ -49,12 +49,13 @@ ability for the optimiser to predict stepsizes. Gradient clipping/normalisation 
 2) `eps=None` (Adam-atan2, scale invariant. Will disable StableAdamW if enabled.)
 
 By default, `split_groups` and `split_groups_mean` are set to `True`, so each parameter group will have its own `d` values, however,
-they will all use the harmonic mean for the dynamic learning rate. To make each group use its own dynamic LR, set `split_groups_mean` to False.
-To use the reference Prodigy behaviour where all groups are combined, set `split_groups` to False. 
+they will all use the harmonic mean for the dynamic learning rate. To make each group use its own dynamic LR, set `split_groups_mean=False`.
+To use the reference Prodigy behaviour where all groups are combined, set `split_groups=False`. 
 
 The optimiser uses low-rank approximations for the second moment, much like Adafactor. There should be little to no difference 
 in training performance, but your mileage may vary. If you encounter problems, you can try disabling factorisation by 
-setting `factored` to `False`.
+setting `factored=False`. If you're training in bfloat16, and need to squeeze out every last drop of memory, you can also set `factored_fp32=False`, which
+will make the factored second moment use the same precision as the weights, rather than float32 (to maximise stability).
 
 The optimiser also supports [fused backward pass](https://pytorch.org/tutorials/intermediate/optimizer_step_in_backward_tutorial.html) to significantly lower
 gradient memory usage. The `fused_back_pass` argument must be set to `True` so the optimiser knows not to perform the regular step. Please note however that 
@@ -70,27 +71,27 @@ Prodigy in particular will increase the LR forever if it is not stopped or cappe
 
 ## Experimental features
 
-**Adam-atan2:** Enabled by setting `eps` to `None`. Outlined in [Scaling Exponents Across Parameterizations and Optimizers](https://arxiv.org/abs/2407.05872), 
+**Adam-atan2:** `eps=None`. Outlined in [Scaling Exponents Across Parameterizations and Optimizers](https://arxiv.org/abs/2407.05872), 
 you can use atan2 in place of the regular division plus epsilon found in most Adam-style optimisers. This makes updates scale-invariant, and removes the need 
 to tweak the epsilon. Disabled by default.
 
-**Muon:** Enabled by setting `use_muon_pp` to `True`. This changes the fundamental behaviour of the optimiser for compatible parameters from AdamW to SGD
+**Muon:** `use_muon_pp=True`. This changes the fundamental behaviour of the optimiser for compatible parameters from AdamW to SGD
 with a quasi-second moment based on the RMS of the updates. [As explained by Keller Jordan](https://x.com/kellerjordan0/status/1844782418676339059), and demonstrated 
 (in various forms) by optimisers such as Shampoo, SOAP and Jordan's Muon, applying preconditioning to the gradient can improve convergence. However, 
 this approach may not work in some situations (small batch sizes, fine-tuning) and as such, is disabled by default.
 
-**C-Optim:** Enabled by setting `use_cautious` to `True`. Outlined in [Cautious Optimizers: Improving Training with One Line of Code](https://arxiv.org/pdf/2411.16085). 
+**C-Optim:** `use_cautious=True`. Outlined in [Cautious Optimizers: Improving Training with One Line of Code](https://arxiv.org/pdf/2411.16085). 
 Applies a simple modification to parameter updates that promotes values that are aligned with the current gradient. This should result in faster convergence. While not 1:1 compatible with schedule-free, [the implementation by nhamanasu](https://github.com/facebookresearch/schedule_free/pull/54) does work, though improvements may be limited.
 
-**Grams:** Enabled by setting `use_grams` to `True`. Described in [Grams: Gradient Descent with Adaptive Momentum Scaling](https://arxiv.org/abs/2412.17107). 
+**Grams:** `use_grams=True`. Described in [Grams: Gradient Descent with Adaptive Momentum Scaling](https://arxiv.org/abs/2412.17107). 
 In a similar vein to C-Optim, the parameter update is modified to separate the update direction from momentum. Thanks to [gesen2egee for the pull request](https://github.com/LoganBooker/prodigy-plus-schedule-free/pull/5).
 
-**ADOPT:** Enabled by setting `use_adopt` to `True`. A partial implementation of [ADOPT: Modified Adam Can Converge with Any β2 with the Optimal Rate](https://arxiv.org/abs/2411.02853), as we only update the second moment after the parameter update, so as to exclude the current gradient. Disabled by default.
+**ADOPT:** `use_adopt=True`. A partial implementation of [ADOPT: Modified Adam Can Converge with Any β2 with the Optimal Rate](https://arxiv.org/abs/2411.02853), as we only update the second moment after the parameter update, so as to exclude the current gradient. Disabled by default.
 
-**OrthoGrad:** Enabled by setting `use_orthograd` to `True`. Updates weights using the component of the gradient that is orthogonal to the current weight direction, as described in [Grokking at the Edge of Numerical Stability](https://arxiv.org/pdf/2501.04697). Can help prevent overfitting and improve generalisation. Ignored
+**OrthoGrad:** `use_orthograd=True`. Updates weights using the component of the gradient that is orthogonal to the current weight direction, as described in [Grokking at the Edge of Numerical Stability](https://arxiv.org/pdf/2501.04697). Can help prevent overfitting and improve generalisation. Ignored
 for parameters using Muon.
 
-**SPEED:** Enabled by setting `use_speed` to `True`. Something of my own creation I've dubbed "Signed Prodigy with ExponEntial D", or SPEED. Prodigy is very
+**SPEED:** `use_speed=True`. Something of my own creation I've dubbed "Signed Prodigy with ExponEntial D", or SPEED. Prodigy is very
 dependent on the magnitude of weights, updates and the gradient, which makes it very difficult to apply other types of optimisations to it. This is my attempt to
 decouple Prodigy's LR adaptation from these magnitudes by using just the sign instead, along with a capped growth rate.
 
