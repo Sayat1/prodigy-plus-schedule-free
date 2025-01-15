@@ -473,7 +473,7 @@ class CoreOptimiser(torch.optim.Optimizer):
         return denom
 
     def get_rms(self, tensor, eps=1e-8):
-        return tensor.norm().div(tensor.numel() ** 0.5).clamp_min(eps)
+        return tensor.norm(2).div(tensor.numel() ** 0.5).clamp_min(eps)
 
     def rms_(self, tensor, eps):
         return tensor.div_(self.get_rms(tensor, eps))
