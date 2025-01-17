@@ -120,10 +120,19 @@ class CoreOptimiser(torch.optim.Optimizer):
         return tensor.ravel()[::slice_p]
    
     @torch.no_grad()
-    def get_running_values_for_group(self, group):
+    def get_running_values_for_group(self, group, p=None):
         if not self.split_groups:
             group = self.param_groups[0]
-        return group['running_d_numerator'], group['running_d_denom']
+
+        running_d_numerator, running_d_denom = group['running_d_numerator'], group['running_d_denom']
+
+        if p is not None:
+            if running_d_numerator.device != p.device:
+                group['running_d_numerator'] = running_d_numerator = running_d_numerator.to(p.device)
+            if running_d_denom.device != p.device:
+                group['running_d_denom'] = running_d_denom = running_d_denom.to(p.device)
+
+        return running_d_numerator, running_d_denom
 
     @torch.no_grad()
     def get_d_mean(self):
@@ -383,7 +392,7 @@ class CoreOptimiser(torch.optim.Optimizer):
             sliced_grad = self.get_sliced_tensor(grad)
             sliced_data = self.get_sliced_tensor(data)
 
-            running_d_numerator, running_d_denom = self.get_running_values_for_group(group)
+            running_d_numerator, running_d_denom = self.get_running_values_for_group(group, data)
 
             s = state['s']
 
