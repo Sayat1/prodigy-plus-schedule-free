@@ -118,21 +118,23 @@ class CoreOptimiser(torch.optim.Optimizer):
     @torch.no_grad()
     def get_sliced_tensor(self, tensor, slice_p=11):
         return tensor.ravel()[::slice_p]
-   
+
     @torch.no_grad()
-    def get_running_values_for_group(self, group, p=None):
+    def check_running_values_for_group(self, p, group):
         if not self.split_groups:
             group = self.param_groups[0]
 
-        running_d_numerator, running_d_denom = group['running_d_numerator'], group['running_d_denom']
+        if group['running_d_numerator'].device != p.device:
+            group['running_d_numerator'] = group['running_d_numerator'].to(p.device)
+        if group['running_d_denom'].device != p.device:
+            group['running_d_denom'] = group['running_d_denom'].to(p.device)
 
-        if p is not None:
-            if running_d_numerator.device != p.device:
-                group['running_d_numerator'] = running_d_numerator = running_d_numerator.to(p.device)
-            if running_d_denom.device != p.device:
-                group['running_d_denom'] = running_d_denom = running_d_denom.to(p.device)
+    @torch.no_grad()
+    def get_running_values_for_group(self, group):
+        if not self.split_groups:
+            group = self.param_groups[0]
 
-        return running_d_numerator, running_d_denom
+        return group['running_d_numerator'], group['running_d_denom']
 
     @torch.no_grad()
     def get_d_mean(self):
@@ -339,11 +341,13 @@ class CoreOptimiser(torch.optim.Optimizer):
         running_d_numerator.zero_()
         running_d_denom.zero_()
 
-    def on_start_step(self):
+    def on_start_step(self, p, group):
         if self.parameters_to_process is None or self.parameters_to_process == 0:
             # Optimiser hasn't run yet (or is starting a new step), so initialise.
             self.parameters_to_process = sum(len(group['params']) for group in self.param_groups)
-    
+            # Check running values are on-device.
+            self.check_running_values_for_group(p, group)
+
     def on_end_step(self):
         self.parameters_to_process -= 1
 
@@ -392,7 +396,7 @@ class CoreOptimiser(torch.optim.Optimizer):
             sliced_grad = self.get_sliced_tensor(grad)
             sliced_data = self.get_sliced_tensor(data)
 
-            running_d_numerator, running_d_denom = self.get_running_values_for_group(group, data)
+            running_d_numerator, running_d_denom = self.get_running_values_for_group(group)
 
             s = state['s']
 
