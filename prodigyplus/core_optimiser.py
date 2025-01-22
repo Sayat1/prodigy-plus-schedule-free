@@ -271,9 +271,9 @@ class CoreOptimiser(torch.optim.Optimizer):
                 if factored_dims is not None:
                     # Store reduction variables so we don't have to recalculate each step.
                     dc, dr = factored_dims
-                    row_shape = list(p.grad.shape)
+                    row_shape = list(grad.shape)
                     row_shape[dr] = 1
-                    col_shape = list(p.grad.shape)
+                    col_shape = list(grad.shape)
                     col_shape[dc] = 1
                     reduce_dc = dc - 1 if dc > dr else dc
 
@@ -282,7 +282,7 @@ class CoreOptimiser(torch.optim.Optimizer):
                                            torch.zeros(col_shape, dtype=factored_dtype, device=p.device).detach(), 
                                            dr, dc, reduce_dc]
                 else:
-                    state['exp_avg_sq'] = torch.zeros_like(p, memory_format=torch.preserve_format).detach()
+                    state['exp_avg_sq'] = torch.zeros_like(grad, memory_format=torch.preserve_format).detach()
 
             # If the initial weights are zero, don't bother storing them.
             if p.any() > 0:
