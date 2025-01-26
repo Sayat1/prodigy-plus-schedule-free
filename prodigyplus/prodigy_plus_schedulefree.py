@@ -133,6 +133,11 @@ class ProdigyPlusScheduleFree(CoreOptimiser):
             weight direction, as described in "Grokking at the Edge of Numerical Stability" (https://arxiv.org/pdf/2501.04697).
             Can help prevent overfitting and improve generalisation.
             (default: False)
+        use_focus (boolean):
+            Experimental. Modifies the update step to better handle noise at large step sizes. From 
+            "FOCUS: First-Order Concentrated Update Scheme" (https://arxiv.org/abs/2501.12243). This method is
+            incompatible with factorisation, Muon and Adam-atan2.
+            (default: False)
         stochastic_rounding (boolean):
             Use stochastic rounding for bfloat16 weights (https://github.com/pytorch/pytorch/issues/120376). Brings
             bfloat16 training performance close to that of float32.
@@ -158,6 +163,7 @@ class ProdigyPlusScheduleFree(CoreOptimiser):
                  use_grams=False,
                  use_adopt=False,
                  use_orthograd=False,
+                 use_focus=False,
                  stochastic_rounding=True):
 
         super().__init__(params=params, lr=lr, betas=betas, beta3=beta3,
@@ -168,7 +174,7 @@ class ProdigyPlusScheduleFree(CoreOptimiser):
                          split_groups_mean=split_groups_mean, factored=factored, factored_fp32=factored_fp32,
                          fused_back_pass=fused_back_pass, use_stableadamw=use_stableadamw,
                          use_muon_pp=use_muon_pp, use_cautious=use_cautious, use_grams=use_grams, 
-                         use_adopt=use_adopt, use_orthograd=use_orthograd, 
+                         use_adopt=use_adopt, use_orthograd=use_orthograd, use_focus=use_focus, 
                          stochastic_rounding=stochastic_rounding)
 
     @torch.no_grad()
@@ -269,6 +275,10 @@ class ProdigyPlusScheduleFree(CoreOptimiser):
 
             state = self.initialise_state(p, group)
             grad = self.orthograd(p) if group['use_orthograd'] and not state['muon'] else p.grad.to(dtype=torch.float32, copy=True)
+
+            z_state = state['z']
+            y, z = (p.float(), z_state.float()) if stochastic else (p, z_state)
+
             update = None
 
             if state['muon']:
@@ -289,10 +299,10 @@ class ProdigyPlusScheduleFree(CoreOptimiser):
                     beta2 = (1 - beta2) / (1 - beta2 ** k)
 
                 if use_adopt and group['k'] == 1:
-                    self.update_second_moment(state, group, grad, 0, return_denom=False)
+                    self.update_second_moment(state, group, grad, 0, z, return_denom=False)
                 else:
-                    denom = self.update_second_moment(state, group, grad, beta2, denom_before_update=use_adopt)
-                    update = self.update_(grad, denom, group)
+                    denom = self.update_second_moment(state, group, grad, beta2, z, denom_before_update=use_adopt)
+                    update = self.update_(grad, denom, group, z)
                     del denom
 
             if update is not None:
@@ -300,11 +310,9 @@ class ProdigyPlusScheduleFree(CoreOptimiser):
                     clip_threshold = self.get_clip_threshold(group)
                     rms = self.get_rms(update, 1).div(clip_threshold).clamp_min(1)
                     update.mul_(1 / rms)
-
-                z_state = state['z']
+                
                 self.update_prodigy(state, group, p.grad, z_state)
 
-                y, z = (p.float(), z_state.float()) if stochastic else (p, z_state)
                 weight_sum = self.update_params(y, z, update, group)
 
                 self.smart_copy(p, y, stochastic, True)

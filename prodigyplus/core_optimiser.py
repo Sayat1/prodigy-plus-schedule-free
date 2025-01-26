@@ -23,6 +23,7 @@ class CoreOptimiser(torch.optim.Optimizer):
                  use_grams=False,
                  use_adopt=False,
                  use_orthograd=False,
+                 use_focus=False,
                  stochastic_rounding=True):
 
         if not 0.0 < d0:
@@ -53,6 +54,17 @@ class CoreOptimiser(torch.optim.Optimizer):
             print(f"[{self.__class__.__name__}] 'use_grams' has been disabled (mutually exclusive with 'use_cautious').")
             use_grams = False
 
+        if use_focus:
+            if factored:
+                print(f"[{self.__class__.__name__}] 'factored' has been disabled (incompatible with 'use_focus').")
+                factored = False
+            if use_muon_pp:
+                print(f"[{self.__class__.__name__}] 'use_muon_pp' has been disabled (incompatible with 'use_focus').")
+                use_muon_pp = False
+            if eps is None:
+                print(f"[{self.__class__.__name__}] Adam-atan2 ('eps=None') has been disabled (incompatible with 'use_focus').")
+                # We skip the Adam-atan2 branch entirely when FOCUS is enabled.
+
         defaults = dict(lr=lr, betas=betas, beta3=beta3,
                         eps=eps,
                         weight_decay=weight_decay,
@@ -73,6 +85,7 @@ class CoreOptimiser(torch.optim.Optimizer):
                         use_grams=use_grams,
                         use_adopt=use_adopt,
                         use_orthograd=use_orthograd,
+                        use_focus=use_focus,
                         stochastic_rounding=stochastic_rounding)
 
         super().__init__(params, defaults)
@@ -256,33 +269,37 @@ class CoreOptimiser(torch.optim.Optimizer):
             dtype = torch.bfloat16 if p.dtype == torch.float32 else p.dtype
             sliced_data = self.get_sliced_tensor(p)
 
-            # NOTE: We don't initialise z/exp_avg here -- subclass needs to do that.
-            state['muon'] = group['use_muon_pp'] and len(grad.shape) >= 2
-
-            if state['muon']:
-                state["rms_sq"] = None if group['use_speed'] else torch.tensor(0.0, dtype=dtype, device=p.device)
+            if group['use_focus']:
+                state['exp_avg_sq'] = torch.zeros_like(p, memory_format=torch.preserve_format).detach()
+                state['muon'] = False
             else:
-                factored_dims = self.factored_dims(
-                    grad.shape,
-                    factored=group['factored'],
-                    min_dim_size_to_factor=32
-                )
+                # NOTE: We don't initialise z/exp_avg here -- subclass needs to do that.
+                state['muon'] = group['use_muon_pp'] and len(grad.shape) >= 2
 
-                if factored_dims is not None:
-                    # Store reduction variables so we don't have to recalculate each step.
-                    dc, dr = factored_dims
-                    row_shape = list(grad.shape)
-                    row_shape[dr] = 1
-                    col_shape = list(grad.shape)
-                    col_shape[dc] = 1
-                    reduce_dc = dc - 1 if dc > dr else dc
-
-                    factored_dtype = torch.float32 if group['factored_fp32'] else p.dtype
-                    state["exp_avg_sq"] = [torch.zeros(row_shape, dtype=factored_dtype, device=p.device).detach(), 
-                                           torch.zeros(col_shape, dtype=factored_dtype, device=p.device).detach(), 
-                                           dr, dc, reduce_dc]
+                if state['muon']:
+                    state["rms_sq"] = None if group['use_speed'] else torch.tensor(0.0, dtype=dtype, device=p.device)
                 else:
-                    state['exp_avg_sq'] = torch.zeros_like(grad, memory_format=torch.preserve_format).detach()
+                    factored_dims = self.factored_dims(
+                        grad.shape,
+                        factored=group['factored'],
+                        min_dim_size_to_factor=32
+                    )
+
+                    if factored_dims is not None:
+                        # Store reduction variables so we don't have to recalculate each step.
+                        dc, dr = factored_dims
+                        row_shape = list(grad.shape)
+                        row_shape[dr] = 1
+                        col_shape = list(grad.shape)
+                        col_shape[dc] = 1
+                        reduce_dc = dc - 1 if dc > dr else dc
+
+                        factored_dtype = torch.float32 if group['factored_fp32'] else p.dtype
+                        state["exp_avg_sq"] = [torch.zeros(row_shape, dtype=factored_dtype, device=p.device).detach(), 
+                                               torch.zeros(col_shape, dtype=factored_dtype, device=p.device).detach(), 
+                                               dr, dc, reduce_dc]
+                    else:
+                        state['exp_avg_sq'] = torch.zeros_like(grad, memory_format=torch.preserve_format).detach()
 
             # If the initial weights are zero, don't bother storing them.
             if p.any() > 0:
@@ -418,19 +435,29 @@ class CoreOptimiser(torch.optim.Optimizer):
             del state['s']
             del state['p0']
 
-    def update_(self, num, denom, group):
-        eps = group['eps']
+    def update_(self, num, denom, group, w):
+        if group['use_focus']:
+            # FOCUS: First Order Concentrated Updating Scheme: https://arxiv.org/pdf/2501.12243
+            gamma = 0.2 # 0.2 is used more consistently in the paper, 0.1 is optimiser default.
 
-        if eps is None:
-            # Approximate scaling for a regular Adam-style update.
-            b = self.get_clip_threshold(group)
+            # Original form.
+            # update = torch.sign(num) + gamma * torch.sign(w - denom)
 
-            # Adam-atan2. Use atan2 rather than epsilon and division 
-            # for parameter updates (https://arxiv.org/abs/2407.05872).
-            # Has the nice property of "clipping" the gradient as well.
-            update = num.atan2_(denom.mul_(b)).mul_(b)
+            denom = denom.sub_(w).sign_().mul_(-gamma)
+            update = num.sign_().add_(denom)
         else:
-            update = num.div_(denom.add_(eps))
+            eps = group['eps']
+
+            if eps is None:
+                # Approximate scaling for a regular Adam-style update.
+                b = self.get_clip_threshold(group)
+
+                # Adam-atan2. Use atan2 rather than epsilon and division 
+                # for parameter updates (https://arxiv.org/abs/2407.05872).
+                # Has the nice property of "clipping" the gradient as well.
+                update = num.atan2_(denom.mul_(b)).mul_(b)
+            else:
+                update = num.div_(denom.add_(eps))
 
         return update
 
@@ -456,7 +483,7 @@ class CoreOptimiser(torch.optim.Optimizer):
 
         return exp_avg.mul_(beta1 * d_k).add_(grad, weight=1 - beta1)
 
-    def update_second_moment(self, state, group, grad, beta2, return_denom=True, denom_before_update=False):
+    def update_second_moment(self, state, group, grad, beta2, w, return_denom=True, denom_before_update=False):
         exp_avg_sq = state['exp_avg_sq']
         d_k = group['d_prev'] / group['d']
 
@@ -466,19 +493,22 @@ class CoreOptimiser(torch.optim.Optimizer):
             denom = self.get_denom(state)
 
         # Adam EMA updates
-        if isinstance(exp_avg_sq, list):
-            row_var, col_var, dr, dc, _ = exp_avg_sq
-
-            row_var.mul_(beta2 * d_k * d_k).add_(
-                grad.norm(dim=dr, keepdim=True).square_().mul_(1 / grad.shape[dr]),
-                alpha=1 - beta2
-            )
-            col_var.mul_(beta2 * d_k * d_k).add_(
-                grad.norm(dim=dc, keepdim=True).square_().mul_(1 / grad.shape[dc]),
-                alpha=1 - beta2
-            )
+        if group['use_focus']:
+            exp_avg_sq.mul_(beta2 * d_k * d_k).add_(w, alpha=1 - beta2)
         else:
-            exp_avg_sq.mul_(beta2 * d_k * d_k).addcmul_(grad, grad, value=1 - beta2)
+            if isinstance(exp_avg_sq, list):
+                row_var, col_var, dr, dc, _ = exp_avg_sq
+
+                row_var.mul_(beta2 * d_k * d_k).add_(
+                    grad.norm(dim=dr, keepdim=True).square_().mul_(1 / grad.shape[dr]),
+                    alpha=1 - beta2
+                )
+                col_var.mul_(beta2 * d_k * d_k).add_(
+                    grad.norm(dim=dc, keepdim=True).square_().mul_(1 / grad.shape[dc]),
+                    alpha=1 - beta2
+                )
+            else:
+                exp_avg_sq.mul_(beta2 * d_k * d_k).addcmul_(grad, grad, value=1 - beta2)
 
         if return_denom and denom is None:
             denom = self.get_denom(state)
