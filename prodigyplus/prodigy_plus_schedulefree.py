@@ -274,7 +274,7 @@ class ProdigyPlusScheduleFree(CoreOptimiser):
             k = group['k']
 
             state = self.initialise_state(p, group)
-            grad = self.orthograd(p) if group['use_orthograd'] and not state['muon'] else p.grad.to(dtype=torch.float32, copy=True)
+            grad = p.grad.to(dtype=torch.float32, copy=True)
 
             z_state = state['z']
             y, z = (p.float(), z_state.float()) if stochastic else (p, z_state)
@@ -306,11 +306,14 @@ class ProdigyPlusScheduleFree(CoreOptimiser):
                     del denom
 
             if update is not None:
+                if group['use_orthograd']:
+                    update = self.orthograd_(z, update)
+
                 if group['use_stableadamw']:
                     clip_threshold = self.get_clip_threshold(group)
                     rms = self.get_rms(update, 1).div(clip_threshold).clamp_min(1)
                     update.mul_(1 / rms)
-                
+
                 self.update_prodigy(state, group, p.grad, z_state)
 
                 weight_sum = self.update_params(y, z, update, group)

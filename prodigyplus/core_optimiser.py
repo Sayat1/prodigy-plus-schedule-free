@@ -199,6 +199,17 @@ class CoreOptimiser(torch.optim.Optimizer):
         g_orth_scaled = g_orth.mul_(g.norm(2) / (g_orth.norm(2) + 1e-30))
 
         return g_orth_scaled.view(p.grad.shape)
+    
+    def orthograd_(self, p, grad):
+        G_shape = grad.shape
+        w = p.view(-1)
+        g = grad.view(-1)
+
+        proj = torch.dot(w, g) / (torch.dot(w, w) + 1e-30)
+        g_orth = g.sub_(w, alpha=proj)
+        g_orth_scaled = g_orth.mul_(g.norm(2) / (g_orth.norm(2) + 1e-30))
+
+        return g_orth_scaled.view(G_shape)
 
     # Implementation by Nerogar. From: https://github.com/pytorch/pytorch/issues/120376#issuecomment-1974828905
     def copy_stochastic_(self, target, source):
