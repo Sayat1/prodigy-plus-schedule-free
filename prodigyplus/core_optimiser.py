@@ -277,11 +277,11 @@ class CoreOptimiser(torch.optim.Optimizer):
         
         if needs_init:
             grad = p.grad
-            dtype = torch.bfloat16 if p.dtype == torch.float32 else p.dtype
+            dtype = torch.bfloat16 if grad.dtype == torch.float32 else grad.dtype
             sliced_data = self.get_sliced_tensor(p)
 
             if group['use_focus']:
-                state['exp_avg_sq'] = torch.zeros_like(p, memory_format=torch.preserve_format).detach()
+                state['exp_avg_sq'] = torch.zeros_like(grad, memory_format=torch.preserve_format).detach()
                 state['muon'] = False
             else:
                 # NOTE: We don't initialise z/exp_avg here -- subclass needs to do that.
@@ -305,7 +305,7 @@ class CoreOptimiser(torch.optim.Optimizer):
                         col_shape[dc] = 1
                         reduce_dc = dc - 1 if dc > dr else dc
 
-                        factored_dtype = torch.float32 if group['factored_fp32'] else p.dtype
+                        factored_dtype = torch.float32 if group['factored_fp32'] else grad.dtype
                         state["exp_avg_sq"] = [torch.zeros(row_shape, dtype=factored_dtype, device=p.device).detach(), 
                                                torch.zeros(col_shape, dtype=factored_dtype, device=p.device).detach(), 
                                                dr, dc, reduce_dc]
