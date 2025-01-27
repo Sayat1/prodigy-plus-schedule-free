@@ -449,7 +449,7 @@ class CoreOptimiser(torch.optim.Optimizer):
     def update_(self, num, denom, group, w):
         if group['use_focus']:
             # FOCUS: First Order Concentrated Updating Scheme: https://arxiv.org/pdf/2501.12243
-            gamma = 0.2 # 0.2 is used more consistently in the paper, 0.1 is optimiser default.
+            gamma = 0.1
 
             # Original form.
             # update = torch.sign(num) + gamma * torch.sign(w - denom)
@@ -472,7 +472,7 @@ class CoreOptimiser(torch.optim.Optimizer):
 
         return update
 
-    def get_denom(self, state):
+    def get_denom(self, state, group):
         exp_avg_sq = state['exp_avg_sq']
 
          # Adam EMA updates
@@ -483,6 +483,8 @@ class CoreOptimiser(torch.optim.Optimizer):
             row_factor = row_var.div(row_col_mean).sqrt_()
             col_factor = col_var.sqrt()
             denom = row_factor * col_factor
+        elif group['use_focus']:
+            denom = exp_avg_sq.clone()
         else:
             denom = exp_avg_sq.sqrt()
 
@@ -501,7 +503,7 @@ class CoreOptimiser(torch.optim.Optimizer):
         denom = None
 
         if return_denom and denom_before_update:
-            denom = self.get_denom(state)
+            denom = self.get_denom(state, group)
 
         # Adam EMA updates
         if group['use_focus']:
@@ -522,7 +524,7 @@ class CoreOptimiser(torch.optim.Optimizer):
                 exp_avg_sq.mul_(beta2 * d_k * d_k).addcmul_(grad, grad, value=1 - beta2)
 
         if return_denom and denom is None:
-            denom = self.get_denom(state)
+            denom = self.get_denom(state, group)
 
         return denom
 
