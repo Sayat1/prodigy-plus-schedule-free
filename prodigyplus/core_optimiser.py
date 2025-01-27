@@ -190,15 +190,16 @@ class CoreOptimiser(torch.optim.Optimizer):
         return G.view(G_shape)
     
     # Implementation from: https://github.com/LucasPrietoAl/grokking-at-the-edge-of-numerical-stability/blob/main/orthograd.py
-    def orthograd(self, p):
+    def orthograd(self, p, grad):
+        G_shape = grad.shape
         w = p.view(-1)
-        g = p.grad.view(-1)
+        g = grad.view(-1)
 
         proj = torch.dot(w, g) / (torch.dot(w, w) + 1e-30)
         g_orth = g.to(dtype=torch.float32, copy=True).sub_(w, alpha=proj)
         g_orth_scaled = g_orth.mul_(g.norm(2) / (g_orth.norm(2) + 1e-30))
 
-        return g_orth_scaled.view(p.grad.shape)
+        return g_orth_scaled.view(G_shape)
     
     def orthograd_(self, p, grad):
         G_shape = grad.shape
