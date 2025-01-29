@@ -300,10 +300,10 @@ class ProdigyPlusScheduleFree(CoreOptimiser):
                     beta2 = (1 - beta2) / (1 - beta2 ** k)
 
                 if use_adopt and group['k'] == 1:
-                    self.update_second_moment(state, group, grad, 0, z, return_denom=False)
+                    self.update_second_moment(state, group, grad, 0, y, return_denom=False)
                 else:
-                    denom = self.update_second_moment(state, group, grad, beta2, z, denom_before_update=use_adopt)
-                    update = self.update_(grad, denom, group, z)
+                    denom = self.update_second_moment(state, group, grad, beta2, y, denom_before_update=use_adopt)
+                    update = self.update_(grad, denom, group, y)
                     del denom
 
             if update is not None:
@@ -312,7 +312,7 @@ class ProdigyPlusScheduleFree(CoreOptimiser):
                     rms = self.get_rms(update, 1).div(clip_threshold).clamp_min(1)
                     update.mul_(1 / rms)
 
-                self.update_prodigy(state, group, p.grad, z_state)
+                self.update_prodigy(state, group, p.grad, p)
 
                 weight_sum = self.update_params(y, z, update, group)
 
