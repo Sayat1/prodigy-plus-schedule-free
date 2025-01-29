@@ -430,28 +430,25 @@ class CoreOptimiser(torch.optim.Optimizer):
         prodigy_steps = group['prodigy_steps']
         
         if prodigy_steps <= 0 or k < prodigy_steps:
-            d = group['d']
             beta3 = group['beta3']
+            d_update = group['d'] ** 0.5
 
             sliced_grad = self.get_sliced_tensor(grad)
             sliced_data = self.get_sliced_tensor(data)
 
             running_d_numerator, running_d_denom = self.get_running_values_for_group(group)
 
-            s = state['s']
-
             x0_minus = state['p0'] - sliced_data
             x0_dot = torch.dot(sliced_grad, x0_minus)
 
             if group['use_speed']:
-                d_update = d * d
+                d_update *= group['d0']
                 x0_dot, sliced_grad = x0_dot.sign(), sliced_grad.sign()
-            else:
-                d_update = d ** 0.5
+
+            s = state['s']
+            s.mul_(beta3).add_(sliced_grad, alpha=d_update)
 
             running_d_numerator.add_(x0_dot, alpha=d_update)
-
-            s.mul_(beta3).add_(sliced_grad, alpha=d_update)
             running_d_denom.add_(s.abs().sum())
             del x0_minus
         elif 's' in state: # Free the memory used by Prodigy, as we no longer need it.
