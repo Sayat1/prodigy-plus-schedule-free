@@ -390,7 +390,6 @@ class CoreOptimiser(torch.optim.Optimizer):
                     self.update_d_and_reset(group)
                     group['weight_sum'] = group.get('running_weight_sum', 0)
                     group['k'] += 1
-                    i += 1
 
                 self.shared_d = self.get_d_mean()
             else:
@@ -408,7 +407,6 @@ class CoreOptimiser(torch.optim.Optimizer):
                     group['d_denom'] = first_group['d_denom']
                     group['weight_sum'] = group.get('running_weight_sum', 0)
                     group['k'] += 1
-                    i += 1
 
 
     def get_dlr(self, group):
