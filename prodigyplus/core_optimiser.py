@@ -359,6 +359,26 @@ class CoreOptimiser(torch.optim.Optimizer):
         running_d_numerator.zero_()
         running_d_denom.zero_()
 
+    @torch.no_grad()
+    def calculate_d(self, group):
+        k = group['k']
+        prodigy_steps = group['prodigy_steps']
+        
+        if prodigy_steps > 0 and k >= prodigy_steps:
+            return
+
+        d = group['d']
+        d_hat = math.atan2(group['d_coef'] * group['d_numerator'], group['d_denom'])
+
+        if group['use_speed']:
+            d_hat = max(d, d_hat)
+            d = min(d_hat, d ** 0.975)
+        else:
+            d = max(d, d_hat)
+
+        group['d_prev'] = group['d']
+        group['d'] = d
+
     def on_start_step(self, p, group):
         if self.parameters_to_process is None or self.parameters_to_process == 0:
             # Optimiser hasn't run yet (or is starting a new step), so initialise.
