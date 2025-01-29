@@ -324,7 +324,7 @@ class CoreOptimiser(torch.optim.Optimizer):
         return state, needs_init
 
     @torch.no_grad()
-    def update_d_and_reset(self, group):
+    def update_d_stats_and_reset(self, group):
         k = group['k']
         prodigy_steps = group['prodigy_steps']
         
@@ -332,8 +332,6 @@ class CoreOptimiser(torch.optim.Optimizer):
             return
 
         d, d0 = group['d'], group['d0']
-        d_prev = group['d_prev']
-        d_coef = group['d_coef']
         beta3 = group['beta3']
 
         running_d_numerator, running_d_denom = self.get_running_values_for_group(group)
@@ -341,8 +339,6 @@ class CoreOptimiser(torch.optim.Optimizer):
         d_numerator = group['d_numerator']
         d_numerator *= beta3
 
-        d_prev = d
-       
         d_numerator_item = running_d_numerator.item()
         d_denom_item = running_d_denom.item()
 
@@ -357,13 +353,6 @@ class CoreOptimiser(torch.optim.Optimizer):
         else:
             d_numerator += d_numerator_item
 
-        d_hat = math.atan2(d_coef * d_numerator, d_denom_item)
-        if group['use_speed']:
-            d_hat = min(d_hat, d ** 0.95)
-        d = max(d, d_hat)
-
-        group['d'] = d
-        group['d_prev'] = d_prev
         group['d_numerator'] = d_numerator
         group['d_denom'] = d_denom_item
 
@@ -387,7 +376,10 @@ class CoreOptimiser(torch.optim.Optimizer):
                     if group['prodigy_steps'] > 0 and group['k'] == group['prodigy_steps']:
                         print(f"[{self.__class__.__name__}] Prodigy stepsize adaptation disabled after {group['k']} steps for param_group {i}.")
 
-                    self.update_d_and_reset(group)
+                    self.update_d_stats_and_reset(group)
+
+                for group in self.param_groups:
+                    self.calculate_d(group)
                     group['weight_sum'] = group.get('running_weight_sum', 0)
                     group['k'] += 1
 
@@ -396,7 +388,8 @@ class CoreOptimiser(torch.optim.Optimizer):
                 # When groups aren't split, calculate d for the first group (which collects stats for all groups in non-split mode), 
                 # then copy to all other groups.
                 first_group = self.param_groups[0]
-                self.update_d_and_reset(first_group)
+                self.update_d_stats_and_reset(first_group)
+                self.calculate_d(first_group)
                 
                 for i, group in enumerate(self.param_groups):
                     if group['prodigy_steps'] > 0 and group['k'] == group['prodigy_steps']:
