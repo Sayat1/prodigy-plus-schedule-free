@@ -116,7 +116,7 @@ Additionally, Prodigy modifies the second moment updates when `d` changes, which
 dependent on the magnitude of weights, updates and the gradient, which makes it very difficult to apply other types of optimisations to it. This is my attempt to
 decouple Prodigy's LR adaptation from these magnitudes by using just the sign instead, along with a capped growth rate.
 
-### Prodigy FAQ
+## Prodigy FAQ
 **Q: Why doesn't Prodigy ever lower the learning rate?**
 
 The original Prodigy's aim is not to act as a combined learning rate calculator and scheduler. It's meant to ballpark a good learning rate, and leave LR decay to your preferred
