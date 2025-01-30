@@ -61,7 +61,11 @@ class ProdigyPlusScheduleFree(CoreOptimiser):
             If False, weight_decay will have a much stronger effect.
             (default: True).
         use_bias_correction (boolean):
-            Turn on Adafactor-style bias correction, which scales beta2 directly. (default: False).
+            Use the RAdam variant of schedule-free (https://github.com/facebookresearch/schedule_free/blob/main/schedulefree/radam_schedulefree.py).
+            This combines bias correction with automatic warmup. Please note this will significantly dampen Prodigy's adaptive stepsize
+            calculations -- it can take up to 10 times longer to start adjusting the learning rate. This can be mitigated somewhat by enabling
+            SPEED (use_speed=True).
+            (default: False).
         d0 (float):
             Initial estimate for Prodigy. Also serves as the minimum learning rate.
             (default: 1e-6).
@@ -213,9 +217,7 @@ class ProdigyPlusScheduleFree(CoreOptimiser):
         return state
 
     @torch.no_grad()
-    def update_params(self, y, z, update, group):
-        dlr = self.get_dlr(group)
-
+    def update_params(self, y, z, update, group, dlr):
         beta1, _ = group['betas']
         decay = group['weight_decay']
 
@@ -279,6 +281,23 @@ class ProdigyPlusScheduleFree(CoreOptimiser):
             y, z = (p.float(), z_state.float()) if stochastic else (p, z_state)
 
             grad = self.orthograd(z_state, p.grad) if group['use_orthograd'] else p.grad.to(dtype=torch.float32, copy=True)
+            dlr = self.get_dlr(group)
+
+            if group['use_bias_correction']:
+                beta2_t = beta2 ** k
+                bias_correction2 = 1 - beta2_t
+
+                # maximum length of the approximated SMA
+                rho_inf = 2 / (1 - beta2) - 1
+                # compute the length of the approximated SMA
+                rho_t = rho_inf - 2 * k * beta2_t / bias_correction2
+                rect = (
+                    ((rho_t - 4) * (rho_t - 2) * rho_inf / ((rho_inf - 4) * (rho_inf - 2) * rho_t)) ** 0.5
+                    if rho_t > 4.0
+                    else 0.0
+                )
+                dlr *= rect
+                beta2 = 1 - (1 - beta2) / (1 - beta2_t)
 
             update = None
 
@@ -294,11 +313,6 @@ class ProdigyPlusScheduleFree(CoreOptimiser):
                     rms_sq = state["rms_sq"].mul_(beta2 * d_k * d_k).add_(self.get_rms(grad).square(), alpha=1 - beta2)
                     update = grad.mul_(1 / rms_sq.sqrt().add(1e-8))
             else:
-                if group['use_bias_correction']:
-                    # Adafactor / PaLM beta2 decay. Clip beta2 as per Scaling ViT paper.
-                    beta2 = min(beta2, 1 - k ** -0.8)
-                    beta2 = (1 - beta2) / (1 - beta2 ** k)
-
                 if use_adopt and group['k'] == 1:
                     self.update_second_moment(state, group, grad, 0, y, return_denom=False)
                 else:
@@ -314,7 +328,7 @@ class ProdigyPlusScheduleFree(CoreOptimiser):
 
                 self.update_prodigy(state, group, p.grad, p)
 
-                weight_sum = self.update_params(y, z, update, group)
+                weight_sum = self.update_params(y, z, update, group, dlr)
 
                 self.smart_copy(p, y, stochastic, True)
                 self.smart_copy(z_state, z, stochastic, True)
