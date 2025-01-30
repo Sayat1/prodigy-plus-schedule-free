@@ -18,11 +18,27 @@ optimizer = ProdigyPlusScheduleFree(model.parameters(), lr=1.0, betas=(0.9, 0.99
 				    split_groups=True, split_groups_mean=True,
  				    factored=True, factored_fp32=True, fused_back_pass=False,
                                     use_stableadamw=True, use_muon_pp=False, use_cautious=False,
-				    use_grams=False, use_adopt=False, stochastic_rounding=True)
+				    use_grams=False, use_adopt=False, use_focus=False,
+                                    stochastic_rounding=True)
 ```
 
 As with the reference implementation of schedule-free, a constant scheduler should be used, along with the appropriate
 calls to `optimizer.train()` and `optimizer.eval()`. See the schedule-free documentation for more details: https://github.com/facebookresearch/schedule_free
+
+## TLDR
+The default settings should "just work", but there are a few configurations you can try to improve things.
+
+### Gradient scaling/clipping
+By default, the optimiser uses StableAdamW to scale parameter updates, which negates the need to use external gradient scaling or clipping. However, this can also hamper Prodigy's
+ability to adapt the stepsize. While the optimiser includes internal logic to mostly mitigate this, you can set `use_stableadamw=False` and use external gradient clipping instead.
+
+### Training multiple networks
+Try setting `split_groups_mean=False` to force the optimiser to use per-group learning rates. If the model fails to learn, or learns too slowly, set `use_speed=True` as well. Finally,
+you can use just `split_groups=False` by itself to revert to the default Prodigy behaviour of combined learning rate calculations.
+
+### Turning off Prodigy
+Earlier versions of the optimiser recommended setting `prodigy_steps` equal to 5-25% of your total step count, but this should not be necessary with recent updates. That said,
+you can still use the setting to make sure the LR does not change after a certain step, and free any memory used by Prodigy for adapting the step size.
 
 ## Details
 An optimiser based on Prodigy that includes schedule-free logic and much, much lower memory usage, the aim being to remove the need to set any hyperparameters. Of course,
@@ -67,7 +83,9 @@ can be controlled via the `prodigy_steps` settings. [It's been suggested that al
 in terms of finding a good LR, which it usually achieves after ~25% of training, though this is very dependent on batch size and epochs. 
 
 This setting can be particularly helpful when training diffusion models, which have very different gradient behaviour than what most optimisers are tuned for. 
-Prodigy in particular will increase the LR forever if it is not stopped or capped in some way (usually via a decaying LR scheduler).
+Prodigy in particular will increase the LR forever if it is not stopped or capped in some way (usually via a decaying LR scheduler). Even if you don't need
+to cap LR growth, the optimiser will free all Prodigy-specific state memory once `prodigy_steps` is exceeded, which may improve performance where memory
+usage is on the borderline.
 
 ## Experimental features
 
@@ -91,9 +109,29 @@ In a similar vein to C-Optim, the parameter update is modified to separate the u
 **OrthoGrad:** `use_orthograd=True`. Updates weights using the component of the gradient that is orthogonal to the current weight direction, as described in [Grokking at the Edge of Numerical Stability](https://arxiv.org/pdf/2501.04697). Can help prevent overfitting and improve generalisation. Ignored
 for parameters using Muon.
 
+**FOCUS:** `use_focus=True`. Modifies the update step to better handle noise at large step sizes. From [FOCUS: First-Order Concentrated Update Scheme](https://arxiv.org/abs/2501.12243). This method is incompatible with factorisation (which will increase state memory usage), Muon and Adam-atan2. 
+Additionally, Prodigy modifies the second moment updates when `d` changes, which may limit the benefits of this method.
+
 **SPEED:** `use_speed=True`. Something of my own creation I've dubbed "Signed Prodigy with ExponEntial D", or SPEED. Prodigy is very
 dependent on the magnitude of weights, updates and the gradient, which makes it very difficult to apply other types of optimisations to it. This is my attempt to
 decouple Prodigy's LR adaptation from these magnitudes by using just the sign instead, along with a capped growth rate.
+
+### Prodigy FAQ
+**Q: Why doesn't Prodigy ever lower the learning rate?**
+
+The original Prodigy's aim is not to act as a combined learning rate calculator and scheduler. It's meant to ballpark a good learning rate, and leave LR decay to your preferred
+scheduler (usually cosine). Prodigy + ScheduleFree does combine the two, but it doesn't adjust the LR directly -- in simple terms, it uses a smaller and smaller portion of the averaged 
+updates as training goes on, roughly approximating a 1/t schedule. 
+
+Looking at `d` alone tells only parts of the story; this is just the LR Prodigy has calculated, minus any internal modifications. A better metric is observing the norm of the weights, 
+you'll see their rate of growth decrease significantly over time, reflecting the small tail of a traditional LR schedule.
+
+**Q: Why isn't Prodigy increasing the LR?**
+
+If Prodigy fails to increase the LR over an extended period (say 100 or more steps), and you're not using bias correction, non-constant LR scheduler or warmup, this usually indicates one of the following:
+1. You haven't set the optimiser's `lr` argument to 1. For compatibility with external LR schedulers, the optimiser will multiple the LR you provide with the adaptive one, so if you forget to change this when switching optimisers, the LR will be tiny.
+2. The ideal LR is less than `d0` (Prodigy's initial LR guess). Try setting `d0` to a lower value, such as 1e-7 or 1e-8. If this doesn't help, you can also try setting `d_coef=2` (or higher), or `use_speed=True`.
+3. External gradient clipping is enabled. This optimiser handles gradient scaling already, so turn off any external clipping/scaling. Alternatively, you can use external scaling, and disable the internal one via `use_stableadamw=False`.
 
 ## MNIST results
 Generated from the [MNIST example in the schedule-free repository](https://github.com/facebookresearch/schedule_free/tree/main/examples/mnist), using the default settings.
@@ -114,8 +152,3 @@ Test set: Average loss: 0.0338, Accuracy: 9928/10000 (99.28%)
 Test set: Average loss: 0.0345, Accuracy: 9925/10000 (99.25%)
 Test set: Average loss: 0.0354, Accuracy: 9925/10000 (99.25%)
 ```
-
-## Recommended usage
-
-Earlier versions of the optimiser recommended setting `prodigy_steps` equal to 5-25% of your total step count, but this should not be necessary with recent updates. That said,
-you can still use the setting to make sure the LR does not change after a certain step, and free any memory used by Prodigy for adapting the step size.
