@@ -317,7 +317,10 @@ class ProdigyPlusScheduleFree(CoreOptimiser):
                     self.update_second_moment(state, group, grad, 0, y, return_denom=False)
                 else:
                     denom = self.update_second_moment(state, group, grad, beta2, y, denom_before_update=use_adopt)
-                    update = self.update_(grad, denom, group, y)
+                    if group['use_bias_correction'] and rho_t <= 4.0:
+                        update = grad
+                    else:
+                        update = self.update_(grad, denom, group, y)
                     del denom
 
             if update is not None:
