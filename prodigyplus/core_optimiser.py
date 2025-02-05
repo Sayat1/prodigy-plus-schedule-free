@@ -10,6 +10,7 @@ class CoreOptimiser(torch.optim.Optimizer):
                  use_bias_correction=False,
                  d0=1e-6, d_coef=1.0,
                  prodigy_steps=0,
+                 prodigy_penalty_term=0.8,
                  use_speed=False,
                  eps=1e-8,
                  split_groups=True,
@@ -73,6 +74,7 @@ class CoreOptimiser(torch.optim.Optimizer):
                         k=1, train_mode=True,
                         weight_sum=0,
                         prodigy_steps=prodigy_steps,
+                        prodigy_penalty_term=prodigy_penalty_term,
                         use_speed=use_speed,
                         use_bias_correction=use_bias_correction,
                         d_numerator=0.0,
@@ -331,6 +333,7 @@ class CoreOptimiser(torch.optim.Optimizer):
         if prodigy_steps > 0 and k >= prodigy_steps:
             return
 
+        penalty_term = group['prodigy_penalty_term']
         d, d0 = group['d'], group['d0']
         beta3 = group['beta3']
 
@@ -342,14 +345,20 @@ class CoreOptimiser(torch.optim.Optimizer):
         d_numerator_item = running_d_numerator.item()
         d_denom_item = running_d_denom.item()
 
-        # Force Prodigy to be extremely confident before increasing the LR when gradient
-        # and weights drift.
         if d_numerator_item < 0:
             if d > d0:
+                # Force Prodigy to be extremely confident before increasing the LR when gradient
+                # and weights drift.
+                if not group['use_speed'] and penalty_term > 0:
+                    d_numerator_item = -(abs(d_numerator_item) ** penalty_term)
+            else:
                 # Prevent the accumulation of negative values in the numerator in early training.
                 # We still allow negative updates once progress starts being made, as this is 
                 # important for regulating the adaptive stepsize.
-                d_numerator = min(d_numerator, d_numerator_item)
+                d_numerator_item = 0
+
+        if group['use_speed'] and d_numerator_item < 0:
+            d_numerator = min(d_numerator_item, d_numerator)
         else:
             d_numerator += d_numerator_item
 
