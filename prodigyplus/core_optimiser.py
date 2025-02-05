@@ -461,9 +461,14 @@ class CoreOptimiser(torch.optim.Optimizer):
             running_d_numerator.add_(x0_dot, alpha=d_update)
             running_d_denom.add_(s.abs().sum())
             del x0_minus
-        elif 's' in state: # Free the memory used by Prodigy, as we no longer need it.
-            del state['s']
-            del state['p0']
+        else:
+            # Free the memory used by Prodigy, as we no longer need it.
+            if 's' in state:
+                s = state.pop('s')
+                del s
+            if 'p0' in state:
+                p0 = state.pop('p0')
+                del p0
 
     def update_(self, num, denom, group, w):
         if group['use_focus']:
