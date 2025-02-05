@@ -351,7 +351,7 @@ class CoreOptimiser(torch.optim.Optimizer):
             if d > d0:
                 # Force Prodigy to be extremely confident before increasing the LR when gradient
                 # and weights drift.
-                if not group['use_speed'] and penalty_term > 0:
+                if penalty_term > 0:
                     d_numerator_item = -(abs(d_numerator_item) ** penalty_term)
             else:
                 # Prevent the accumulation of negative values in the numerator in early training.
@@ -359,10 +359,7 @@ class CoreOptimiser(torch.optim.Optimizer):
                 # important for regulating the adaptive stepsize.
                 d_numerator_item = 0
 
-        if group['use_speed'] and d_numerator_item < 0:
-            d_numerator = min(d_numerator_item, d_numerator)
-        else:
-            d_numerator += d_numerator_item
+        d_numerator += d_numerator_item
 
         group['prev_d_numerator'] = group['d_numerator']
         group['max_d_numerator'] = max(d_numerator, max_d_numerator)
