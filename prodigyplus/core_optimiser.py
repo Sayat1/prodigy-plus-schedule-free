@@ -3,96 +3,61 @@ import torch
 from statistics import harmonic_mean
 
 class CoreOptimiser(torch.optim.Optimizer):
-    def __init__(self, params, lr=1.0,
-                 betas=(0.9, 0.99), beta3=None,
-                 weight_decay=0.0,
-                 weight_decay_by_lr=True,
-                 use_bias_correction=False,
-                 d0=1e-6, d_coef=1.0,
-                 prodigy_steps=0,
-                 prodigy_penalty_term=True,
-                 use_speed=False,
-                 eps=1e-8,
-                 split_groups=True,
-                 split_groups_mean=True,
-                 factored=True,
-                 factored_fp32=True,
-                 fused_back_pass=False,
-                 use_stableadamw=True,
-                 use_muon_pp=False,
-                 use_cautious=False,
-                 use_grams=False,
-                 use_adopt=False,
-                 use_orthograd=False,
-                 use_focus=False,
-                 stochastic_rounding=True):
+    def __init__(self, params, **kwargs):
 
-        if not 0.0 < d0:
-            raise ValueError("Invalid d0 value: {}".format(d0))
-        if not 0.0 < lr:
-            raise ValueError("Invalid learning rate: {}".format(lr))
-        if eps is not None and not 0.0 < eps:
-            raise ValueError("Invalid epsilon value: {}".format(eps))
-        if not 0.0 <= betas[0] < 1.0:
-            raise ValueError("Invalid beta parameter at index 0: {}".format(betas[0]))
-        if not 0.0 <= betas[1] < 1.0:
-            raise ValueError("Invalid beta parameter at index 1: {}".format(betas[1]))
-        if beta3 is not None and not 0.0 <= beta3 < 1.0:
-            raise ValueError("Invalid beta3 parameter: {}".format(beta3))
+        if not 0.0 < kwargs['d0']:
+            raise ValueError("Invalid d0 value: {}".format(kwargs['d0']))
+        if not 0.0 < kwargs['lr']:
+            raise ValueError("Invalid learning rate: {}".format(kwargs['lr']))
+        if kwargs['eps'] is not None and not 0.0 < kwargs['eps']:
+            raise ValueError("Invalid epsilon value: {}".format(kwargs['eps']))
+        if not 0.0 <= kwargs['betas'][0] < 1.0:
+            raise ValueError("Invalid beta parameter at index 0: {}".format(kwargs['betas'][0]))
+        if not 0.0 <= kwargs['betas'][1] < 1.0:
+            raise ValueError("Invalid beta parameter at index 1: {}".format(kwargs['betas'][1]))
+        if kwargs['beta3'] is not None and not 0.0 <= kwargs['beta3'] < 1.0:
+            raise ValueError("Invalid beta3 parameter: {}".format(kwargs['beta3']))
 
         self.try_hook_kohya_fbp()
 
-        if beta3 is None:
-            beta3 = betas[1] ** 0.5
+        if kwargs['beta3'] is None:
+            kwargs['beta3'] = kwargs['betas'][1] ** 0.5
 
-        if eps is None:
+        if kwargs['eps'] is None:
             print(f"[{self.__class__.__name__}] 'eps' is None, Adam-atan2 enabled.")
-            if use_stableadamw:
+            if kwargs['use_stableadamw']:
                 print(f"[{self.__class__.__name__}] 'use_stableadamw' has been disabled (mutually exclusive with Adam-atan2).")
-                use_stableadamw = False
+                kwargs['use_stableadamw'] = False
 
-        if use_cautious and use_grams:
+        if kwargs['use_cautious'] and kwargs['use_grams']:
             print(f"[{self.__class__.__name__}] 'use_grams' has been disabled (mutually exclusive with 'use_cautious').")
-            use_grams = False
+            kwargs['use_grams'] = False
 
-        if use_focus:
-            if factored:
+        if kwargs['use_focus']:
+            if kwargs['factored']:
                 print(f"[{self.__class__.__name__}] 'factored' has been disabled (incompatible with 'use_focus').")
-                factored = False
-            if use_muon_pp:
+                kwargs['factored'] = False
+            if kwargs['use_muon_pp']:
                 print(f"[{self.__class__.__name__}] 'use_muon_pp' has been disabled (incompatible with 'use_focus').")
-                use_muon_pp = False
-            if eps is None:
+                kwargs['use_muon_pp'] = False
+            if kwargs['eps'] is None:
                 print(f"[{self.__class__.__name__}] Adam-atan2 ('eps=None') has been disabled (incompatible with 'use_focus').")
                 # We skip the Adam-atan2 branch entirely when FOCUS is enabled.
 
-        defaults = dict(lr=lr, betas=betas, beta3=beta3,
-                        eps=eps,
-                        weight_decay=weight_decay,
-                        weight_decay_by_lr=weight_decay_by_lr,
-                        d=d0, d_prev=d0, d0=d0, d_coef=d_coef,
-                        k=1, train_mode=True,
-                        weight_sum=0,
-                        prodigy_steps=prodigy_steps,
-                        prodigy_penalty_term=prodigy_penalty_term,
-                        use_speed=use_speed,
-                        use_bias_correction=use_bias_correction,
-                        d_numerator=0.0,
-                        d_denom=0,
-                        factored=factored,
-                        factored_fp32=factored_fp32,
-                        use_stableadamw=use_stableadamw,
-                        use_muon_pp=use_muon_pp,
-                        use_cautious=use_cautious,
-                        use_grams=use_grams,
-                        use_adopt=use_adopt,
-                        use_orthograd=use_orthograd,
-                        use_focus=use_focus,
-                        stochastic_rounding=stochastic_rounding)
+        split_groups = kwargs.pop('split_groups')
+        split_groups_mean = kwargs.pop('split_groups_mean')
+        fused_back_pass = kwargs.pop('fused_back_pass')
+
+        defaults = dict(kwargs)
+        
+        defaults['d'] = defaults['d_prev'] = defaults['d0']
+        defaults['weight_sum'] = defaults['d_denom'] = defaults['d_numerator'] = 0
+        defaults['train_mode'] = True
+        defaults['k'] = 1
 
         super().__init__(params, defaults)
 
-        self.d0 = d0
+        self.d0 = defaults['d0']
         if split_groups and len(self.param_groups) == 1:
             print(f"[{self.__class__.__name__}] Optimiser contains single param_group -- 'split_groups' has been disabled.")
             split_groups = False
