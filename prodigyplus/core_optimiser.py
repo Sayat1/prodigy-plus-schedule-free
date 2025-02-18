@@ -316,7 +316,7 @@ class CoreOptimiser(torch.optim.Optimizer):
             if d > d0:
                 # Force Prodigy to be extremely confident before increasing the LR when gradient
                 # and weights drift.
-                if penalty_term or group['use_speed']:
+                if penalty_term:
                     d_numerator = min(d_numerator, d_numerator_item)
                     d_numerator_item = 0
             else:
