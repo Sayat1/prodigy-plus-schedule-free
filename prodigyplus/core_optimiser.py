@@ -286,7 +286,8 @@ class CoreOptimiser(torch.optim.Optimizer):
             else:
                 state['p0'] = torch.tensor(0.0, dtype=dtype, device=p.device)
 
-            state['s'] = torch.zeros_like(sliced_data, memory_format=torch.preserve_format, dtype=dtype).detach()
+            if not group['use_speed']:
+                state['s'] = torch.zeros_like(sliced_data, memory_format=torch.preserve_format, dtype=dtype).detach()
 
         return state, needs_init
 
@@ -304,6 +305,7 @@ class CoreOptimiser(torch.optim.Optimizer):
 
         running_d_numerator, running_d_denom = self.get_running_values_for_group(group)
 
+        max_d_numerator = group.get('max_d_numerator', 0)
         d_numerator = group['d_numerator']
         d_numerator *= beta3
 
@@ -314,7 +316,7 @@ class CoreOptimiser(torch.optim.Optimizer):
             if d > d0:
                 # Force Prodigy to be extremely confident before increasing the LR when gradient
                 # and weights drift.
-                if penalty_term:
+                if penalty_term or group['use_speed']:
                     d_numerator = min(d_numerator, d_numerator_item)
                     d_numerator_item = 0
             else:
@@ -323,11 +325,10 @@ class CoreOptimiser(torch.optim.Optimizer):
                 # important for regulating the adaptive stepsize.
                 d_numerator_item = 0
 
-        if group['use_speed'] and d_numerator_item < 0:
-            d_numerator = min(d_numerator_item, d_numerator)
-        else:
-            d_numerator += d_numerator_item
+        d_numerator += d_numerator_item
 
+        group['prev_d_numerator'] = group['d_numerator']
+        group['max_d_numerator'] = max(d_numerator, max_d_numerator)
         group['d_numerator'] = d_numerator
         group['d_denom'] = d_denom_item
 
@@ -342,13 +343,17 @@ class CoreOptimiser(torch.optim.Optimizer):
         if prodigy_steps > 0 and k >= prodigy_steps:
             return
 
-        d = group['d']
-        d_hat = math.atan2(group['d_coef'] * group['d_numerator'], group['d_denom'])
+        d, d_coef = group['d'], group['d_coef']
+        d_numerator = group['d_numerator']
 
         if group['use_speed']:
-            d_hat = max(d, d_hat)
-            d = min(d_hat, d ** 0.975)
+            prev_d_numerator, max_d_numerator = group['prev_d_numerator'], group['max_d_numerator']
+
+            if d_numerator >= max_d_numerator and prev_d_numerator > 0:
+                d_hat = min(2 ** 0.25, (d_numerator / prev_d_numerator) ** 0.75)
+                d = max(d, d * d_hat * d_coef)
         else:
+            d_hat = math.atan2(d_coef * d_numerator, group['d_denom'])
             d = max(d, d_hat)
 
         group['d_prev'] = group['d']
@@ -407,7 +412,6 @@ class CoreOptimiser(torch.optim.Optimizer):
         
         if prodigy_steps <= 0 or k < prodigy_steps:
             beta3 = group['beta3']
-            d_update = group['d'] ** 0.5
 
             sliced_grad = self.get_sliced_tensor(grad)
             sliced_data = self.get_sliced_tensor(data)
@@ -418,14 +422,16 @@ class CoreOptimiser(torch.optim.Optimizer):
             x0_dot = torch.dot(sliced_grad, x0_minus)
 
             if group['use_speed']:
-                d_update *= group['d0']
-                x0_dot, sliced_grad = x0_dot.sign(), sliced_grad.sign()
-
-            s = state['s']
-            s.mul_(beta3).add_(sliced_grad, alpha=d_update)
+                d_update = 1.0
+                x0_dot *= sliced_grad.abs().sum().clamp_max(1)
+            else:
+                d_update = group['d'] ** 0.5
+                s = state['s']
+                s.mul_(beta3).add_(sliced_grad, alpha=d_update)
+                running_d_denom.add_(s.abs().sum())
 
             running_d_numerator.add_(x0_dot, alpha=d_update)
-            running_d_denom.add_(s.abs().sum())
+
             del x0_minus
         else:
             # Free the memory used by Prodigy, as we no longer need it.

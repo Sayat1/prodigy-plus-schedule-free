@@ -83,10 +83,11 @@ class ProdigyPlusScheduleFree(CoreOptimiser):
             such as fine-tuning. Ignored if use_speed is True.
             (default: True)
         use_speed (boolean):
-            Highly experimental. Signed Prodigy with ExponEntial D. This decouples the adaptive stepsize calculations from 
-            the magnitude of the weights and gradient. This can provide faster, more accurate LRs in some scenarios, 
-            but may fail in situations where the optimal LR is very close to (or less than) d0.
-            (default: False):
+            Highly experimental. Simplified Prodigy with rElativE D. This decouples Prodigy from the magnitude of the weights and uses 
+            a more straightforward heuristic for adapting the stepsize. It can provide better LR adaptation when training multiple networks,
+            and consumes less memory, as the denominator is computed from the previous step's numerator rather than the L1 norm 
+            of the exponential average of gradients.
+            (default: False)
         split_groups (boolean):
             Track individual adaptation values for each parameter group. For example, if training
             a text encoder beside a Unet. Note this can have a significant impact on training dynamics.
