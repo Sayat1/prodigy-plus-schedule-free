@@ -158,6 +158,9 @@ class CoreOptimiser(torch.optim.Optimizer):
     
     # Implementation from: https://github.com/LucasPrietoAl/grokking-at-the-edge-of-numerical-stability/blob/main/orthograd.py
     def orthograd(self, p, grad):
+        if p.norm(2) <= 1e-30:
+            return grad.to(dtype=torch.float32, copy=True)
+
         G_shape = grad.shape
         w = p.view(-1)
         g = grad.view(-1)
