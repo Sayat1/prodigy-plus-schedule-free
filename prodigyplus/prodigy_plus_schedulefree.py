@@ -240,8 +240,8 @@ class ProdigyPlusScheduleFree(CoreOptimiser):
             if group['weight_decay_by_lr']:
                 decay *= dlr
 
-            y.sub_(y, alpha=decay * xy_step)
             z.sub_(y, alpha=decay)
+            y.sub_(y, alpha=decay * xy_step)
 
         cautious, grams = group['use_cautious'], group['use_grams']
 
