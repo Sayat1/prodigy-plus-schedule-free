@@ -194,7 +194,7 @@ class ProdigyPlusScheduleFree(CoreOptimiser):
         for group in self.param_groups:
             if not group['train_mode']:
                 continue
-            beta1, _ = group['betas']
+            beta1, _ = self.get_betas(group)
             for p in group['params']:
                 z = self.state[p].get('z')
                 if z is not None:
@@ -207,7 +207,7 @@ class ProdigyPlusScheduleFree(CoreOptimiser):
         for group in self.param_groups:
             if group['train_mode']:
                 continue
-            beta1, _ = group['betas']
+            beta1, _ = self.get_betas(group)
             for p in group['params']:
                 z = self.state[p].get('z')
                 if z is not None:
@@ -226,7 +226,7 @@ class ProdigyPlusScheduleFree(CoreOptimiser):
 
     @torch.no_grad()
     def update_params(self, y, z, update, group, dlr):
-        beta1, _ = group['betas']
+        beta1, _ = self.get_betas(group)
         decay = group['weight_decay']
 
         weight = dlr ** 2
@@ -280,7 +280,7 @@ class ProdigyPlusScheduleFree(CoreOptimiser):
         if p.grad is not None:
             use_adopt = group['use_adopt']
             stochastic = group['stochastic_rounding']
-            _, beta2 = group['betas']
+            _, beta2 = self.get_betas(group)
             k = group['k']
 
             state = self.initialise_state(p, group)

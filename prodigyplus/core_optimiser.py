@@ -13,15 +13,12 @@ class CoreOptimiser(torch.optim.Optimizer):
             raise ValueError("Invalid epsilon value: {}".format(kwargs['eps']))
         if not 0.0 <= kwargs['betas'][0] < 1.0:
             raise ValueError("Invalid beta parameter at index 0: {}".format(kwargs['betas'][0]))
-        if not 0.0 <= kwargs['betas'][1] < 1.0:
+        if kwargs['betas'][1] is not None and not 0.0 <= kwargs['betas'][1] < 1.0:
             raise ValueError("Invalid beta parameter at index 1: {}".format(kwargs['betas'][1]))
         if kwargs['beta3'] is not None and not 0.0 <= kwargs['beta3'] < 1.0:
             raise ValueError("Invalid beta3 parameter: {}".format(kwargs['beta3']))
 
         self.try_hook_kohya_fbp()
-
-        if kwargs['beta3'] is None:
-            kwargs['beta3'] = kwargs['betas'][1] ** 0.5
 
         if kwargs['eps'] is None:
             print(f"[{self.__class__.__name__}] 'eps' is None, Adam-atan2 enabled.")
@@ -294,6 +291,18 @@ class CoreOptimiser(torch.optim.Optimizer):
 
         return state, needs_init
 
+    def get_betas(self, group):
+        beta1, beta2 = group['betas']
+        if beta2 is None:
+            beta2 = 1 - (1 / group['k'])
+        return (beta1, beta2)
+
+    def get_beta3(self, group):
+        beta3 = group['beta3']
+        if beta3 is None:
+            beta3 = self.get_betas(group)[1] ** 0.5
+        return beta3
+
     @torch.no_grad()
     def update_d_stats_and_reset(self, group):
         k = group['k']
@@ -304,7 +313,7 @@ class CoreOptimiser(torch.optim.Optimizer):
 
         penalty_term = group['prodigy_penalty_term']
         d, d0 = group['d'], group['d0']
-        beta3 = group['beta3']
+        beta3 = self.get_beta3(group)
 
         running_d_numerator, running_d_denom = self.get_running_values_for_group(group)
 
@@ -414,7 +423,7 @@ class CoreOptimiser(torch.optim.Optimizer):
         prodigy_steps = group['prodigy_steps']
         
         if prodigy_steps <= 0 or k < prodigy_steps:
-            beta3 = group['beta3']
+            beta3 = self.get_beta3(group)
 
             sliced_grad = self.get_sliced_tensor(grad)
             sliced_data = self.get_sliced_tensor(data)
