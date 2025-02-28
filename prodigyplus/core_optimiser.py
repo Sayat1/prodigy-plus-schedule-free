@@ -377,7 +377,10 @@ class CoreOptimiser(torch.optim.Optimizer):
             # Optimiser hasn't run yet (or is starting a new step), so initialise.
             self.parameters_to_process = sum(len(group['params']) for group in self.param_groups)
             # Check running values are on-device.
-            for group in self.param_groups:
+            if self.split_groups:
+                for other_group in self.param_groups:
+                    self.check_running_values_for_group(p, other_group)
+            else:
                 self.check_running_values_for_group(p, group)
 
     def on_end_step(self):
