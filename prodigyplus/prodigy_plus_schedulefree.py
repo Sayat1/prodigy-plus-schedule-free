@@ -333,8 +333,7 @@ class ProdigyPlusScheduleFree(CoreOptimiser):
 
             if update is not None:
                 if group['use_stableadamw']:
-                    clip_threshold = self.get_clip_threshold(group)
-                    rms = self.get_rms(update, 1).div(clip_threshold).clamp_min(1)
+                    rms = self.compute_adaptive_rms(state, update)
                     update.mul_(1 / rms)
 
                 self.update_prodigy(state, group, p.grad, p)

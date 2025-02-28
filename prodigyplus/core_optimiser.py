@@ -3,8 +3,9 @@ import torch
 from statistics import harmonic_mean
 
 class CoreOptimiser(torch.optim.Optimizer):
-    def __init__(self, params, **kwargs):
+    MAX_CLIP_THRESHOLD = 5
 
+    def __init__(self, params, **kwargs):
         if not 0.0 < kwargs['d0']:
             raise ValueError("Invalid d0 value: {}".format(kwargs['d0']))
         if not 0.0 < kwargs['lr']:
@@ -470,7 +471,7 @@ class CoreOptimiser(torch.optim.Optimizer):
 
             if eps is None:
                 # Approximate scaling for a regular Adam-style update.
-                b = self.get_clip_threshold(group)
+                b = CoreOptimiser.MAX_CLIP_THRESHOLD ** (0.995 ** group['k'])
 
                 # Adam-atan2. Use atan2 rather than epsilon and division 
                 # for parameter updates (https://arxiv.org/abs/2407.05872).
@@ -543,12 +544,12 @@ class CoreOptimiser(torch.optim.Optimizer):
     def rms_(self, tensor, eps):
         return tensor.div_(self.get_rms(tensor, eps))
 
-    def get_clip_threshold(self, group):
-        # Prodigy works best with unscaled gradients during early steps.
-        if not group['use_speed'] and group['d'] <= group['d0']:
-            return 50
+    def compute_adaptive_rms(self, state, update):
+        beta = 0.99 # Roughly averages the last 100 updates.
+        rms = min(self.get_rms(update, 1), CoreOptimiser.MAX_CLIP_THRESHOLD)
+        max_update_rms = state['max_update_rms'] = state.get('max_update_rms', rms) * beta + rms * (1 - beta)
 
-        return 1
+        return max(rms / max_update_rms, 1)
 
     def try_hook_kohya_fbp(self):
         self.kohya_original_patch_adafactor_fused = None
