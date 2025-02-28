@@ -363,7 +363,7 @@ class CoreOptimiser(torch.optim.Optimizer):
             prev_d_numerator, max_d_numerator = group['prev_d_numerator'], group['max_d_numerator']
 
             if d_numerator >= max_d_numerator and prev_d_numerator > 0:
-                d_hat = min(2 ** 0.25, (d_numerator / prev_d_numerator) ** 0.75)
+                d_hat = min(2 ** 0.5, (d_numerator / prev_d_numerator) ** 0.75)
                 d = max(d, d * d_hat * d_coef)
         else:
             d_hat = math.atan2(d_coef * d_numerator, group['d_denom'])
@@ -439,8 +439,8 @@ class CoreOptimiser(torch.optim.Optimizer):
             x0_dot = torch.dot(sliced_grad, x0_minus)
 
             if group['use_speed']:
-                d_update = group['d0']
-                x0_dot /= sliced_grad.abs().sum().clamp(1e-8, 1.0)
+                d_update = group['d']
+                x0_dot /= x0_minus.abs().sum().clamp_min(1e-8)
             else:
                 d_update = group['d'] ** 0.5
                 s = state['s']
