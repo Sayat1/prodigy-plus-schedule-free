@@ -3,8 +3,6 @@ import torch
 from statistics import harmonic_mean
 
 class CoreOptimiser(torch.optim.Optimizer):
-    MAX_CLIP_THRESHOLD = 5
-
     def __init__(self, params, **kwargs):
         if not 0.0 < kwargs['d0']:
             raise ValueError("Invalid d0 value: {}".format(kwargs['d0']))
@@ -459,7 +457,7 @@ class CoreOptimiser(torch.optim.Optimizer):
                 p0 = state.pop('p0')
                 del p0
 
-    def update_(self, num, denom, group, w):
+    def update_(self, num, denom, state, group, w):
         if group['use_focus']:
             # FOCUS: First Order Concentrated Updating Scheme: https://arxiv.org/pdf/2501.12243
             gamma = 0.1
@@ -474,12 +472,13 @@ class CoreOptimiser(torch.optim.Optimizer):
 
             if eps is None:
                 # Approximate scaling for a regular Adam-style update.
-                b = CoreOptimiser.MAX_CLIP_THRESHOLD ** (0.995 ** group['k'])
+                b = state.get('exp_clip_threshold', self.get_max_clip_threshold(group))
 
                 # Adam-atan2. Use atan2 rather than epsilon and division 
                 # for parameter updates (https://arxiv.org/abs/2407.05872).
                 # Has the nice property of "clipping" the gradient as well.
                 update = num.atan2_(denom.mul_(b)).mul_(b)
+                self.compute_adaptive_rms(state, group, update)
             else:
                 update = num.div_(denom.add_(eps))
 
@@ -541,18 +540,25 @@ class CoreOptimiser(torch.optim.Optimizer):
 
         return denom
 
+    def get_max_clip_threshold(self, group):
+        _, beta2 = self.get_betas(group)
+        return 1 / (1 - beta2) ** 0.5
+
+    def compute_adaptive_rms(self, state, group, update):
+        rms = self.get_rms(update, 1)
+        clip_threshold = min(rms, self.get_max_clip_threshold(group))
+
+        beta = 0.95
+        exp_clip_threshold = state.get('exp_clip_threshold', clip_threshold)
+        state['exp_clip_threshold'] = exp_clip_threshold * beta + clip_threshold * (1 - beta)
+
+        return max(rms / exp_clip_threshold, 1)
+
     def get_rms(self, tensor, eps=1e-8):
         return tensor.norm(2).div(tensor.numel() ** 0.5).clamp_min(eps)
 
     def rms_(self, tensor, eps):
         return tensor.div_(self.get_rms(tensor, eps))
-
-    def compute_adaptive_rms(self, state, update):
-        beta = 0.99 # Roughly averages the last 100 updates.
-        rms = min(self.get_rms(update, 1), CoreOptimiser.MAX_CLIP_THRESHOLD)
-        max_update_rms = state['max_update_rms'] = state.get('max_update_rms', rms) * beta + rms * (1 - beta)
-
-        return max(rms / max_update_rms, 1)
 
     def try_hook_kohya_fbp(self):
         self.kohya_original_patch_adafactor_fused = None

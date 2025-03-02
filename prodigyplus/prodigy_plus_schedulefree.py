@@ -328,12 +328,12 @@ class ProdigyPlusScheduleFree(CoreOptimiser):
                     if group['use_bias_correction'] and rho_t <= 4.0:
                         update = grad
                     else:
-                        update = self.update_(grad, denom, group, y)
+                        update = self.update_(grad, denom, state, group, y)
                     del denom
 
             if update is not None:
                 if group['use_stableadamw']:
-                    rms = self.compute_adaptive_rms(state, update)
+                    rms = self.compute_adaptive_rms(state, group, update)
                     update.mul_(1 / rms)
 
                 self.update_prodigy(state, group, p.grad, p)
