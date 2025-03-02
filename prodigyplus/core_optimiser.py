@@ -542,7 +542,10 @@ class CoreOptimiser(torch.optim.Optimizer):
 
     def get_max_clip_threshold(self, group):
         _, beta2 = self.get_betas(group)
-        return 1 / (1 - beta2) ** 0.5
+        # Maximum RMS of first update.
+        max_clip_threshold = (1 - beta2) ** -0.5
+        # Clamp below maximum RMS so LR is not underestimated.
+        return max_clip_threshold ** 0.5
 
     def compute_adaptive_rms(self, state, group, update):
         rms = self.get_rms(update, 1)
