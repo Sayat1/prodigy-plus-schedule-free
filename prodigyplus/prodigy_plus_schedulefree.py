@@ -243,6 +243,10 @@ class ProdigyPlusScheduleFree(CoreOptimiser):
             z.sub_(y, alpha=decay)
             y.sub_(y, alpha=decay * xy_step)
 
+        d_factor = 1 - (group['d_prev'] / group['d'])
+        if d_factor > 0:
+            z.lerp_(end=y, weight=d_factor)
+
         cautious, grams = group['use_cautious'], group['use_grams']
 
         if cautious or grams:
