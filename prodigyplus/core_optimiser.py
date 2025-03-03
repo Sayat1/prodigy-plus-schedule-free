@@ -33,9 +33,6 @@ class CoreOptimiser(torch.optim.Optimizer):
             if kwargs['factored']:
                 print(f"[{self.__class__.__name__}] 'factored' has been disabled (incompatible with 'use_focus').")
                 kwargs['factored'] = False
-            if kwargs['use_muon_pp']:
-                print(f"[{self.__class__.__name__}] 'use_muon_pp' has been disabled (incompatible with 'use_focus').")
-                kwargs['use_muon_pp'] = False
             if kwargs['eps'] is None:
                 print(f"[{self.__class__.__name__}] Adam-atan2 ('eps=None') has been disabled (incompatible with 'use_focus').")
                 # We skip the Adam-atan2 branch entirely when FOCUS is enabled.
@@ -123,35 +120,7 @@ class CoreOptimiser(torch.optim.Optimizer):
         if self.split_groups:
             return max(group['d'] for group in self.param_groups)
         return group['d']
-
-    # From: https://github.com/KellerJordan/Muon/blob/master/muon.py
-    @torch.no_grad()
-    def newton_schulz_(self, G, steps=6, eps=1e-7):
-        # Inline reshaping step within the method itself.
-        G_shape = G.shape
-        G = G.view(G.size(0), -1)
-
-        a, b, c = (3.4445, -4.7750,  2.0315)
-        X = G.to(dtype=torch.bfloat16, copy=True)
-        if G.size(0) > G.size(1):
-            X = X.T
-
-        X /= X.norm().add(eps) # ensure top singular value <= 1
-        for _ in range(steps):
-            A = X @ X.T
-            B = b * A + c * A @ A
-            X = a * X + B @ X
-
-        if G.size(0) > G.size(1):
-            X = X.T
-
-        # Gradient scaling adaptation from: https://github.com/leloykun/adaptive-muon
-        X = torch.einsum('ij,ij->', G.type_as(X), X).clamp(-1.0, 1.0) * X
-        G.copy_(X)
-        del X
-
-        return G.view(G_shape)
-    
+   
     # Implementation from: https://github.com/LucasPrietoAl/grokking-at-the-edge-of-numerical-stability/blob/main/orthograd.py
     def orthograd(self, p, grad):
         if p.norm(2) <= 1e-30:
@@ -249,35 +218,29 @@ class CoreOptimiser(torch.optim.Optimizer):
 
             if group['use_focus']:
                 state['exp_avg_sq'] = torch.zeros_like(grad, memory_format=torch.preserve_format).detach()
-                state['muon'] = False
             else:
                 # NOTE: We don't initialise z/exp_avg here -- subclass needs to do that.
-                state['muon'] = group['use_muon_pp'] and len(grad.shape) >= 2
+                factored_dims = self.factored_dims(
+                    grad.shape,
+                    factored=group['factored'],
+                    min_dim_size_to_factor=32
+                )
 
-                if state['muon']:
-                    state["rms_sq"] = None if group['use_speed'] else torch.tensor(0.0, dtype=dtype, device=p.device)
+                if factored_dims is not None:
+                    # Store reduction variables so we don't have to recalculate each step.
+                    dc, dr = factored_dims
+                    row_shape = list(grad.shape)
+                    row_shape[dr] = 1
+                    col_shape = list(grad.shape)
+                    col_shape[dc] = 1
+                    reduce_dc = dc - 1 if dc > dr else dc
+
+                    factored_dtype = torch.float32 if group['factored_fp32'] else grad.dtype
+                    state["exp_avg_sq"] = [torch.zeros(row_shape, dtype=factored_dtype, device=p.device).detach(), 
+                                            torch.zeros(col_shape, dtype=factored_dtype, device=p.device).detach(), 
+                                            dr, dc, reduce_dc]
                 else:
-                    factored_dims = self.factored_dims(
-                        grad.shape,
-                        factored=group['factored'],
-                        min_dim_size_to_factor=32
-                    )
-
-                    if factored_dims is not None:
-                        # Store reduction variables so we don't have to recalculate each step.
-                        dc, dr = factored_dims
-                        row_shape = list(grad.shape)
-                        row_shape[dr] = 1
-                        col_shape = list(grad.shape)
-                        col_shape[dc] = 1
-                        reduce_dc = dc - 1 if dc > dr else dc
-
-                        factored_dtype = torch.float32 if group['factored_fp32'] else grad.dtype
-                        state["exp_avg_sq"] = [torch.zeros(row_shape, dtype=factored_dtype, device=p.device).detach(), 
-                                               torch.zeros(col_shape, dtype=factored_dtype, device=p.device).detach(), 
-                                               dr, dc, reduce_dc]
-                    else:
-                        state['exp_avg_sq'] = torch.zeros_like(grad, memory_format=torch.preserve_format).detach()
+                    state['exp_avg_sq'] = torch.zeros_like(grad, memory_format=torch.preserve_format).detach()
 
             # If the initial weights are zero, don't bother storing them.
             if p.any() > 0:
