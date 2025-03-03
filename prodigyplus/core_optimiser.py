@@ -545,17 +545,21 @@ class CoreOptimiser(torch.optim.Optimizer):
         # Maximum RMS of first update.
         max_clip_threshold = (1 - beta2) ** -0.5
         # Clamp below maximum RMS so LR is not underestimated.
-        return max_clip_threshold ** 0.5
+        return max_clip_threshold ** 0.6
 
     def compute_adaptive_rms(self, state, group, update):
         rms = self.get_rms(update, 1)
-        clip_threshold = min(rms, self.get_max_clip_threshold(group))
+        max_clip_threshold = self.get_max_clip_threshold(group)
 
-        beta = 0.95
-        exp_clip_threshold = state.get('exp_clip_threshold', clip_threshold)
-        state['exp_clip_threshold'] = exp_clip_threshold * beta + clip_threshold * (1 - beta)
+        # Only adapt RMS once LR starts increasing.
+        if group['d'] > group['d0']:
+            clip_threshold = min(rms, max_clip_threshold)
 
-        return max(rms / exp_clip_threshold, 1)
+            beta = 0.98 # EMA of the last 50 steps.
+            max_clip_threshold = state.get('exp_clip_threshold', clip_threshold) * beta + clip_threshold * (1 - beta)
+            state['exp_clip_threshold'] = max_clip_threshold
+
+        return max(rms / max_clip_threshold, 1)
 
     def get_rms(self, tensor, eps=1e-8):
         return tensor.norm(2).div(tensor.numel() ** 0.5).clamp_min(eps)
