@@ -208,16 +208,21 @@ class ProdigyPlusScheduleFree(CoreOptimiser):
 
         if needs_init:
             state['z'] = p.detach().clone(memory_format=torch.preserve_format)
+            state['weight_step'] = 0
         
         return state
 
     @torch.no_grad()
-    def update_params(self, y, z, update, group, dlr):
+    def update_params(self, y, z, update, state, group, dlr):
         beta1, _ = self.get_betas(group)
         decay = group['weight_decay']
-
-        weight = dlr ** 2
-        weight_sum = group['weight_sum'] + weight
+        
+        weight_sum = group['weight_sum']
+        weight_step = state['weight_step'] + (1 if dlr > 0 else 0)
+        state['weight_step'] = weight_step
+        
+        weight = weight_step ** -0.325
+        weight_sum += weight
         ckp1 = weight / weight_sum if weight_sum else 0
 
         xy_step = 1 - beta1 * (1 - ckp1)
@@ -313,7 +318,7 @@ class ProdigyPlusScheduleFree(CoreOptimiser):
 
                 self.update_prodigy(state, group, p.grad, p)
 
-                weight_sum = self.update_params(y, z, update, group, dlr)
+                weight_sum = self.update_params(y, z, update, state, group, dlr)
 
                 self.smart_copy(p, y, stochastic, True)
                 self.smart_copy(z_state, z, stochastic, True)
