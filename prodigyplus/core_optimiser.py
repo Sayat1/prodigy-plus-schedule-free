@@ -445,9 +445,7 @@ class CoreOptimiser(torch.optim.Optimizer):
             row_var, col_var, _, _, reduce_dc = exp_avg_sq
 
             row_col_mean = row_var.mean(dim=reduce_dc, keepdim=True).add_(1e-30)
-            row_factor = row_var.div(row_col_mean).sqrt_()
-            col_factor = col_var.sqrt()
-            denom = row_factor * col_factor
+            denom = (row_var.div(row_col_mean) * col_var).sqrt_()
         elif group['use_focus']:
             denom = exp_avg_sq.clone()
         else:
