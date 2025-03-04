@@ -273,7 +273,6 @@ class CoreOptimiser(torch.optim.Optimizer):
         if prodigy_steps > 0 and k >= prodigy_steps:
             return
 
-        penalty_term = group['prodigy_penalty_term']
         d, d0 = group['d'], group['d0']
         beta3 = self.get_beta3(group)
 
@@ -286,20 +285,11 @@ class CoreOptimiser(torch.optim.Optimizer):
         d_numerator_item = running_d_numerator.item()
         d_denom_item = running_d_denom.item()
 
-        if d_numerator_item < 0:
-            if d > d0:
-                # Force Prodigy to be extremely confident before increasing the LR when gradient
-                # and weights drift.
-                if penalty_term:
-                    d_numerator = min(d_numerator, d_numerator_item)
-                    d_numerator_item = 0
-            else:
-                # Prevent the accumulation of negative values in the numerator in early training.
-                # We still allow negative updates once progress starts being made, as this is 
-                # important for regulating the adaptive stepsize.
-                d_numerator_item = 0
-
-        d_numerator += d_numerator_item
+        # Prevent the accumulation of negative values in the numerator in early training.
+        # We still allow negative updates once progress starts being made, as this is 
+        # important for regulating the adaptive stepsize.
+        if d > d0 or d_numerator_item > 0:
+            d_numerator += d_numerator_item
 
         group['prev_d_numerator'] = group['d_numerator']
         group['max_d_numerator'] = max(d_numerator, max_d_numerator)

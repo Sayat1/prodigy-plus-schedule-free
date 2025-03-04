@@ -77,11 +77,6 @@ class ProdigyPlusScheduleFree(CoreOptimiser):
             Freeze Prodigy stepsize adjustments after a certain optimiser step and releases all state memory required
             by Prodigy.
             (default: 0)
-        prodigy_penalty_term (boolean):
-            Reset the Prodigy numerator when a negative update is applied. This forces Prodigy to be more confident before
-            raising the learning rate after early training, however, it may prevent the model from learning in some scenarios,
-            such as fine-tuning. Ignored if use_speed is True.
-            (default: True)
         use_speed (boolean):
             Highly experimental. Simplified Prodigy with rElativE D. This decouples Prodigy from the magnitude of the weights and uses 
             a more straightforward heuristic for adapting the stepsize. It can provide better LR adaptation when training multiple networks,
@@ -155,7 +150,6 @@ class ProdigyPlusScheduleFree(CoreOptimiser):
                  use_bias_correction=False,
                  d0=1e-6, d_coef=1.0,
                  prodigy_steps=0,
-                 prodigy_penalty_term=True,
                  use_speed=False,
                  eps=1e-8,
                  split_groups=True,
@@ -175,7 +169,6 @@ class ProdigyPlusScheduleFree(CoreOptimiser):
                          weight_decay=weight_decay, weight_decay_by_lr=weight_decay_by_lr,
                          use_bias_correction=use_bias_correction,
                          d0=d0, d_coef=d_coef, prodigy_steps=prodigy_steps, use_speed=use_speed,
-                         prodigy_penalty_term=prodigy_penalty_term,
                          eps=eps, split_groups=split_groups,
                          split_groups_mean=split_groups_mean, factored=factored, factored_fp32=factored_fp32,
                          fused_back_pass=fused_back_pass, use_stableadamw=use_stableadamw,
