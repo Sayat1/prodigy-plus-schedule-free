@@ -461,7 +461,7 @@ class CoreOptimiser(torch.optim.Optimizer):
 
     def update_second_moment(self, state, group, grad, beta2, w, return_denom=True, denom_before_update=False):
         exp_avg_sq = state['exp_avg_sq']
-        d_k = group['d_prev'] / group['d']
+        d_k = (group['d_prev'] / group['d']) ** 3
 
         denom = None
 
@@ -475,16 +475,16 @@ class CoreOptimiser(torch.optim.Optimizer):
             if isinstance(exp_avg_sq, list):
                 row_var, col_var, dr, dc, _ = exp_avg_sq
 
-                row_var.mul_(beta2 * d_k * d_k).add_(
+                row_var.mul_(beta2 * d_k).add_(
                     grad.norm(dim=dr, keepdim=True).square_().mul_(1 / grad.shape[dr]),
                     alpha=1 - beta2
                 )
-                col_var.mul_(beta2 * d_k * d_k).add_(
+                col_var.mul_(beta2 * d_k).add_(
                     grad.norm(dim=dc, keepdim=True).square_().mul_(1 / grad.shape[dc]),
                     alpha=1 - beta2
                 )
             else:
-                exp_avg_sq.mul_(beta2 * d_k * d_k).addcmul_(grad, grad, value=1 - beta2)
+                exp_avg_sq.mul_(beta2 * d_k).addcmul_(grad, grad, value=1 - beta2)
 
         if return_denom and denom is None:
             denom = self.get_denom(state, group)
