@@ -253,7 +253,7 @@ class ProdigyPlusScheduleFree(CoreOptimiser):
                 # "Cautious Optimizer (C-Optim): Improving Training with One Line of Code": https://github.com/kyleliang919/c-optim
                 # ScheduleFree implementation by nhamanasu: https://github.com/facebookresearch/schedule_free/pull/54
                 mask = update.mul_(u).sign_().clamp_min_(0)
-                mask.mul_(mask.numel() / mask.sum().add(1))
+                mask.div_(mask.mean().clamp_min(1e-3))
                 u.mul_(mask)
             elif grams:
                 # "Grams: Gradient Descent with Adaptive Momentum Scaling": https://arxiv.org/abs/2412.17107
