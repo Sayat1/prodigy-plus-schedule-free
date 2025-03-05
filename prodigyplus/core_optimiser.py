@@ -470,7 +470,7 @@ class CoreOptimiser(torch.optim.Optimizer):
 
         # Adam EMA updates
         if group['use_focus']:
-            exp_avg_sq.mul_(beta2 * d_k * d_k).add_(w, alpha=1 - beta2)
+            exp_avg_sq.mul_(beta2 * d_k).add_(w, alpha=1 - beta2)
         else:
             if isinstance(exp_avg_sq, list):
                 row_var, col_var, dr, dc, _ = exp_avg_sq
