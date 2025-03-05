@@ -216,7 +216,7 @@ class ProdigyPlusScheduleFree(CoreOptimiser):
 
         if needs_init:
             state['z'] = p.detach().clone(memory_format=torch.preserve_format)
-            state['weight_step'] = 0
+            state['weight_step'] = 1
         
         return state
 
@@ -226,12 +226,13 @@ class ProdigyPlusScheduleFree(CoreOptimiser):
         decay = group['weight_decay']
 
         weight_sum = group['weight_sum']
-        weight_step = state['weight_step'] + (1 if dlr > 0 else 0)
-        state['weight_step'] = weight_step
-
+        weight_step = state['weight_step']
+        
         weight = weight_step ** -0.25
         weight_sum += weight
         ckp1 = weight / weight_sum if weight_sum else 0
+
+        state['weight_step'] = weight_step + (1 if dlr > 0 else 0)
 
         xy_step = 1 - beta1 * (1 - ckp1)
 
