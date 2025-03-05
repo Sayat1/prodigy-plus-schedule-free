@@ -390,7 +390,7 @@ class CoreOptimiser(torch.optim.Optimizer):
             x0_dot = torch.dot(sliced_grad, x0_minus)
 
             if group['use_speed']:
-                d_update = group['d']
+                d_update = group['d'] / (group['d0'] ** 0.5)
                 x0_dot /= x0_minus.abs().sum().clamp_min(1e-8)
             else:
                 d_update = group['d'] ** 0.5
