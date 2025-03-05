@@ -108,8 +108,14 @@ class ProdigyPlusScheduleFree(CoreOptimiser):
             needed for scripts and UIs that call the regular step method even when using fused backward pass (OneTrainer).
             (default: False)
         use_stableadamw (boolean):
-            Scales parameter updates by the root-mean-square of the normalised gradient, in essence identical to 
-            Adafactor's gradient scaling. Set to False if the adaptive learning rate never improves.
+            Scales parameter updates by the root-mean-square of the update, in essence identical to Adafactor's update scaling. 
+            Set to False if the adaptive learning rate never improves.
+            (default: True)
+        adaptive_stableadamw (boolean):
+            When StableAdamW or Adam-atan2 is enabled, use the exponential moving average of the update RMS 
+            to scale parameter updates. This allows for larger updates early in training, which Prodigy requires
+            to correctly adapt the step size, and will naturally trend towards 1. If False, updates will always be
+            scaled so they have an RMS of 1 (which may be more appropriate for fine-tuning).
             (default: True)
         use_cautious (boolean):
             Experimental. Perform "cautious" updates, as proposed in https://arxiv.org/pdf/2411.16085. Modifies
@@ -158,6 +164,7 @@ class ProdigyPlusScheduleFree(CoreOptimiser):
                  factored_fp32=True,
                  fused_back_pass=False,
                  use_stableadamw=True,
+                 adaptive_stableadamw=True,
                  use_cautious=False,
                  use_grams=False,
                  use_adopt=False,
@@ -171,7 +178,8 @@ class ProdigyPlusScheduleFree(CoreOptimiser):
                          d0=d0, d_coef=d_coef, prodigy_steps=prodigy_steps, use_speed=use_speed,
                          eps=eps, split_groups=split_groups,
                          split_groups_mean=split_groups_mean, factored=factored, factored_fp32=factored_fp32,
-                         fused_back_pass=fused_back_pass, use_stableadamw=use_stableadamw,
+                         fused_back_pass=fused_back_pass, 
+                         use_stableadamw=use_stableadamw, adaptive_stableadamw=adaptive_stableadamw,
                          use_cautious=use_cautious, use_grams=use_grams, 
                          use_adopt=use_adopt, use_orthograd=use_orthograd, use_focus=use_focus, 
                          stochastic_rounding=stochastic_rounding)
@@ -216,11 +224,11 @@ class ProdigyPlusScheduleFree(CoreOptimiser):
     def update_params(self, y, z, update, state, group, dlr):
         beta1, _ = self.get_betas(group)
         decay = group['weight_decay']
-        
+
         weight_sum = group['weight_sum']
         weight_step = state['weight_step'] + (1 if dlr > 0 else 0)
         state['weight_step'] = weight_step
-        
+
         weight = weight_step ** -0.325
         weight_sum += weight
         ckp1 = weight / weight_sum if weight_sum else 0
