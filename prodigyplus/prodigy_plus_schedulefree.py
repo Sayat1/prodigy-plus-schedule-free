@@ -229,7 +229,7 @@ class ProdigyPlusScheduleFree(CoreOptimiser):
         weight_step = state['weight_step'] + (1 if dlr > 0 else 0)
         state['weight_step'] = weight_step
 
-        weight = weight_step ** -0.325
+        weight = weight_step ** -0.25
         weight_sum += weight
         ckp1 = weight / weight_sum if weight_sum else 0
 

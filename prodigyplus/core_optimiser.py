@@ -444,7 +444,7 @@ class CoreOptimiser(torch.optim.Optimizer):
 
     def update_second_moment(self, state, group, grad, beta2, w, return_denom=True, denom_before_update=False):
         exp_avg_sq = state['exp_avg_sq']
-        d_k = (group['d_prev'] / group['d']) ** 3
+        d_k = (group['d_prev'] / group['d']) ** 2
 
         denom = None
 
