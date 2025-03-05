@@ -115,12 +115,6 @@ class CoreOptimiser(torch.optim.Optimizer):
             return harmonic_mean(group['d'] for group in self.param_groups)
         return None
 
-    @torch.no_grad()
-    def get_d_max(self, group):
-        if self.split_groups:
-            return max(group['d'] for group in self.param_groups)
-        return group['d']
-   
     # Implementation from: https://github.com/LucasPrietoAl/grokking-at-the-edge-of-numerical-stability/blob/main/orthograd.py
     def orthograd(self, p, grad):
         if p.norm(2) <= 1e-30:
@@ -132,17 +126,6 @@ class CoreOptimiser(torch.optim.Optimizer):
 
         proj = torch.dot(w, g) / (torch.dot(w, w) + 1e-30)
         g_orth = g.to(dtype=torch.float32, copy=True).sub_(w, alpha=proj)
-        g_orth_scaled = g_orth.mul_(g.norm(2) / (g_orth.norm(2) + 1e-30))
-
-        return g_orth_scaled.view(G_shape)
-    
-    def orthograd_(self, p, grad):
-        G_shape = grad.shape
-        w = p.view(-1)
-        g = grad.view(-1)
-
-        proj = torch.dot(w, g) / (torch.dot(w, w) + 1e-30)
-        g_orth = g.sub_(w, alpha=proj)
         g_orth_scaled = g_orth.mul_(g.norm(2) / (g_orth.norm(2) + 1e-30))
 
         return g_orth_scaled.view(G_shape)
@@ -237,8 +220,8 @@ class CoreOptimiser(torch.optim.Optimizer):
 
                     factored_dtype = torch.float32 if group['factored_fp32'] else grad.dtype
                     state["exp_avg_sq"] = [torch.zeros(row_shape, dtype=factored_dtype, device=p.device).detach(), 
-                                            torch.zeros(col_shape, dtype=factored_dtype, device=p.device).detach(), 
-                                            dr, dc, reduce_dc]
+                                           torch.zeros(col_shape, dtype=factored_dtype, device=p.device).detach(), 
+                                           dr, dc, reduce_dc]
                 else:
                     state['exp_avg_sq'] = torch.zeros_like(grad, memory_format=torch.preserve_format).detach()
 
@@ -457,7 +440,7 @@ class CoreOptimiser(torch.optim.Optimizer):
         exp_avg = state['exp_avg']
         d_k = group['d_prev'] / group['d']
 
-        return exp_avg.mul_(beta1 * d_k).add_(grad, weight=1 - beta1)
+        return exp_avg.mul_(beta1 * d_k).add_(grad, alpha=1 - beta1)
 
     def update_second_moment(self, state, group, grad, beta2, w, return_denom=True, denom_before_update=False):
         exp_avg_sq = state['exp_avg_sq']
@@ -509,17 +492,11 @@ class CoreOptimiser(torch.optim.Optimizer):
             beta = 0.95
             max_clip_threshold = max_clip_threshold * beta + rms * (1 - beta)
             state['exp_clip_threshold'] = max_clip_threshold
-            scaling = max(rms / max_clip_threshold, 1)
-            if scaling > 1:
-                print(f"Clip: {max_clip_threshold:.4f}, RMS: {rms.item():.4f}, Scaling: {scaling:.4f}")
 
         return max(rms / max_clip_threshold, 1)
 
     def get_rms(self, tensor, eps=1e-8):
         return tensor.norm(2).div(tensor.numel() ** 0.5).clamp_min(eps)
-
-    def rms_(self, tensor, eps):
-        return tensor.div_(self.get_rms(tensor, eps))
 
     def try_hook_kohya_fbp(self):
         self.kohya_original_patch_adafactor_fused = None
