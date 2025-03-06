@@ -279,10 +279,11 @@ class ProdigyPlusScheduleFree(CoreOptimiser):
         weight_sum = group['weight_sum']
 
         if p.grad is not None:
+            k = group['k']
             use_adopt = group['use_adopt']
+            use_bias_correction = group['use_bias_correction']
             stochastic = group['stochastic_rounding']
             _, beta2 = self.get_betas(group)
-            k = group['k']
 
             state = self.initialise_state(p, group)
 
@@ -292,7 +293,7 @@ class ProdigyPlusScheduleFree(CoreOptimiser):
             grad = p.grad.to(dtype=torch.float32, copy=True)
             dlr = self.get_dlr(group)
 
-            if group['use_bias_correction']:
+            if use_bias_correction:
                 beta2_t = beta2 ** k
                 bias_correction2 = 1 - beta2_t
 
@@ -310,11 +311,12 @@ class ProdigyPlusScheduleFree(CoreOptimiser):
 
             update = None
 
-            if use_adopt and group['k'] == 1:
+            if use_adopt and k == 1:
                 self.update_second_moment(state, group, grad, 0, y, return_denom=False)
+                del grad
             else:
                 denom = self.update_second_moment(state, group, grad, beta2, y, denom_before_update=use_adopt)
-                if group['use_bias_correction'] and rho_t <= 4.0:
+                if use_bias_correction and rho_t <= 4.0:
                     update = grad
                 else:
                     update = self.update_(grad, denom, state, group, y)
