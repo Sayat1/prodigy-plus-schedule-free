@@ -485,15 +485,14 @@ class CoreOptimiser(torch.optim.Optimizer):
         if not group['adaptive_stableadamw']:
             return rms
 
-        max_clip_threshold = state.get('exp_clip_threshold', self.get_max_clip_threshold(group))
+        max_clip_threshold = self.get_max_clip_threshold(group)
+        exp_clip_threshold = state.get('exp_clip_threshold', 1)
+        
+        beta = 1 - (1 / (group['k'] + 1))
+        exp_clip_threshold = (exp_clip_threshold * beta) + min(rms, max_clip_threshold) * (1 - beta)
+        state['exp_clip_threshold'] = exp_clip_threshold
 
-        # Only adapt RMS once LR starts increasing.
-        if group['d'] > group['d0'] and group['d'] == group['d_prev']:
-            beta = 0.95
-            max_clip_threshold = max_clip_threshold * beta + rms * (1 - beta)
-            state['exp_clip_threshold'] = max_clip_threshold
-
-        return max(rms / max_clip_threshold, 1)
+        return max(rms / exp_clip_threshold, 1)
 
     def get_rms(self, tensor, eps=1e-8):
         return tensor.norm(2).div(tensor.numel() ** 0.5).clamp_min(eps)
