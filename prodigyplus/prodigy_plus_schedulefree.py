@@ -289,7 +289,7 @@ class ProdigyPlusScheduleFree(CoreOptimiser):
             z_state = state['z']
             y, z = (p.float(), z_state.float()) if stochastic else (p, z_state)
 
-            grad = self.orthograd(p, p.grad) if group['use_orthograd'] else p.grad.to(dtype=torch.float32, copy=True)
+            grad = p.grad.to(dtype=torch.float32, copy=True)
             dlr = self.get_dlr(group)
 
             if group['use_bias_correction']:
@@ -324,6 +324,9 @@ class ProdigyPlusScheduleFree(CoreOptimiser):
                 if group['use_stableadamw']:
                     rms = self.compute_adaptive_rms(state, group, update)
                     update.mul_(1 / rms)
+
+                if group['use_orthograd']:
+                    update = self.orthograd_(y.to(dtype=update.dtype), update)
 
                 self.update_prodigy(state, group, p.grad, p)
 
