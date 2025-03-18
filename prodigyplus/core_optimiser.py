@@ -298,8 +298,9 @@ class CoreOptimiser(torch.optim.Optimizer):
             prev_d_numerator, max_d_numerator = group['prev_d_numerator'], group['max_d_numerator']
 
             if d_numerator >= max_d_numerator and prev_d_numerator > 0:
-                d_hat = min(2 ** 0.5, (d_numerator / prev_d_numerator) ** 0.75)
-                d = max(d, d * d_hat * d_coef)
+                d_hat_coef = 0.75 * (d_coef ** 0.25)
+                d_hat = min(2 ** 0.5, (d_numerator / prev_d_numerator) ** d_hat_coef)
+                d = max(d, d * d_hat)
         elif d_denom > 0:
             d_hat = (d_coef * d_numerator) / d_denom
             d = max(d, d_hat)
