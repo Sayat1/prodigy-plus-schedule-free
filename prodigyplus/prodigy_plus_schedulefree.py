@@ -288,7 +288,7 @@ class ProdigyPlusScheduleFree(CoreOptimiser):
             state = self.initialise_state(p, group)
 
             z_state = state['z']
-            y, z = (p.float(), z_state.float()) if stochastic else (p, z_state)
+            y, z = (p.float(), z_state.float())
 
             grad = p.grad.to(dtype=torch.float32, copy=True)
             dlr = self.get_dlr(group)
@@ -328,7 +328,7 @@ class ProdigyPlusScheduleFree(CoreOptimiser):
                     update.mul_(1 / rms)
 
                 if group['use_orthograd']:
-                    update = self.orthograd_(y.to(dtype=update.dtype), update)
+                    update = self.orthograd_(y, update)
 
                 self.update_prodigy(state, group, p.grad, p)
 
