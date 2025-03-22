@@ -410,13 +410,12 @@ class CoreOptimiser(torch.optim.Optimizer):
 
             if eps is None:
                 # Approximate scaling for a regular Adam-style update.
-                b = state.get('exp_clip_threshold', self.get_max_clip_threshold(group))
+                b = self.get_max_clip_threshold()
 
                 # Adam-atan2. Use atan2 rather than epsilon and division 
                 # for parameter updates (https://arxiv.org/abs/2407.05872).
                 # Has the nice property of "clipping" the gradient as well.
                 update = num.atan2_(denom.mul_(b)).mul_(b)
-                self.compute_adaptive_rms(state, group, update)
             else:
                 update = num.div_(denom.add_(eps))
 
@@ -476,10 +475,8 @@ class CoreOptimiser(torch.optim.Optimizer):
 
         return denom
 
-    def get_max_clip_threshold(self, group):
-        _, beta2 = self.get_betas(group)
-        # Maximum RMS of first update.
-        return (1 - beta2) ** -0.5
+    def get_max_clip_threshold(self):
+        return 4
 
     def compute_adaptive_rms(self, state, group, update):
         rms = self.get_rms(update, 1)
@@ -487,10 +484,10 @@ class CoreOptimiser(torch.optim.Optimizer):
         if not group['adaptive_stableadamw']:
             return rms
 
-        max_clip_threshold = self.get_max_clip_threshold(group)
+        max_clip_threshold = self.get_max_clip_threshold()
         exp_clip_threshold = state.get('exp_clip_threshold', 1)
-        
-        beta = 1 - (1 / (group['k'] + 1))
+
+        beta = 0.9
         exp_clip_threshold = (exp_clip_threshold * beta) + min(rms, max_clip_threshold) * (1 - beta)
         state['exp_clip_threshold'] = exp_clip_threshold
 
