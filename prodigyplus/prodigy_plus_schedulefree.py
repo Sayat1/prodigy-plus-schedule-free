@@ -296,20 +296,7 @@ class ProdigyPlusScheduleFree(CoreOptimiser):
         dlr = self.get_dlr(group)
 
         if use_bias_correction:
-            beta2_t = beta2 ** k
-            bias_correction2 = 1 - beta2_t
-
-            # maximum length of the approximated SMA
-            rho_inf = 2 / (1 - beta2) - 1
-            # compute the length of the approximated SMA
-            rho_t = rho_inf - 2 * k * beta2_t / bias_correction2
-            rect = (
-                ((rho_t - 4) * (rho_t - 2) * rho_inf / ((rho_inf - 4) * (rho_inf - 2) * rho_t)) ** 0.5
-                if rho_t > 4.0
-                else 0.0
-            )
-            dlr *= rect
-            beta2 = 1 - (1 - beta2) / (1 - beta2_t)
+            dlr, beta2, _ = self.get_bias_correction(dlr, beta2, k)
 
         update = None
 
@@ -379,20 +366,7 @@ class ProdigyPlusScheduleFree(CoreOptimiser):
         dlr = self.get_dlr(group)
 
         if use_bias_correction:
-            beta2_t = beta2 ** k
-            bias_correction2 = 1 - beta2_t
-
-            # maximum length of the approximated SMA
-            rho_inf = 2 / (1 - beta2) - 1
-            # compute the length of the approximated SMA
-            rho_t = rho_inf - 2 * k * beta2_t / bias_correction2
-            rect = (
-                ((rho_t - 4) * (rho_t - 2) * rho_inf / ((rho_inf - 4) * (rho_inf - 2) * rho_t)) ** 0.5
-                if rho_t > 4.0
-                else 0.0
-            )
-            dlr *= rect
-            beta2 = 1 - (1 - beta2) / (1 - beta2_t)
+            dlr, beta2, rho_t = self.get_bias_correction(dlr, beta2, k)
 
         update = None
 

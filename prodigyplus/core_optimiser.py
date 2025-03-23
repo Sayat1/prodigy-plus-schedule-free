@@ -254,6 +254,24 @@ class CoreOptimiser(torch.optim.Optimizer):
         if group['weight_decay_by_lr']:
             decay *= lr
         return decay
+    
+    def get_bias_correction(self, dlr, beta2, k):
+        beta2_t = beta2 ** k
+        bias_correction2 = 1 - beta2_t
+
+        # maximum length of the approximated SMA
+        rho_inf = 2 / (1 - beta2) - 1
+        # compute the length of the approximated SMA
+        rho_t = rho_inf - 2 * k * beta2_t / bias_correction2
+        rect = (
+            ((rho_t - 4) * (rho_t - 2) * rho_inf / ((rho_inf - 4) * (rho_inf - 2) * rho_t)) ** 0.5
+            if rho_t > 4.0
+            else 0.0
+        )
+        dlr *= rect
+        beta2 = 1 - (1 - beta2) / (1 - beta2_t)
+
+        return (dlr, beta2, rho_t)
 
     @torch.no_grad()
     def update_d_stats_and_reset(self, group):
