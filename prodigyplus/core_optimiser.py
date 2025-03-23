@@ -249,6 +249,12 @@ class CoreOptimiser(torch.optim.Optimizer):
             beta3 = self.get_betas(group)[1] ** 0.5
         return beta3
 
+    def get_weight_decay(self, group, lr):
+        decay = group['weight_decay']
+        if group['weight_decay_by_lr']:
+            decay *= lr
+        return decay
+
     @torch.no_grad()
     def update_d_stats_and_reset(self, group):
         k = group['k']

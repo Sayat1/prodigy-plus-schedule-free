@@ -223,7 +223,7 @@ class ProdigyPlusScheduleFree(CoreOptimiser):
     @torch.no_grad()
     def update_params(self, y, z, update, state, group, dlr):
         beta1, _ = self.get_betas(group)
-        decay = group['weight_decay']
+        decay = self.get_weight_decay(group, dlr)
 
         weight_sum = group['weight_sum']
         weight_step = state['weight_step']
@@ -238,9 +238,6 @@ class ProdigyPlusScheduleFree(CoreOptimiser):
 
         if decay != 0:
             # Weight decay at Y.
-            if group['weight_decay_by_lr']:
-                decay *= dlr
-
             z.sub_(y, alpha=decay)
             y.sub_(y, alpha=decay * xy_step)
 
