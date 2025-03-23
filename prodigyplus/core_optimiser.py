@@ -360,10 +360,9 @@ class CoreOptimiser(torch.optim.Optimizer):
                     group['weight_sum'] = group.get('running_weight_sum', 0)
                     group['k'] += 1
 
-
     def get_dlr(self, group):
         dlr = (self.shared_d if self.split_groups and self.shared_d else group['d']) * group['lr']
-        return dlr * group.get('rect', 1.0)
+        return dlr
 
     def update_prodigy(self, state, group, grad, data):
         k = group['k']
