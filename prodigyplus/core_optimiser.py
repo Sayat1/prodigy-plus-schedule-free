@@ -378,10 +378,8 @@ class CoreOptimiser(torch.optim.Optimizer):
                 d_update = group['d'] / (group['d0'] ** 0.5)
                 x0_dot /= x0_minus.abs().sum().clamp_min(1e-8)
             else:
-                d_update = group['d'] ** 0.5
-                s = state['s']
-                s.mul_(beta3).add_(sliced_grad, alpha=d_update)
-                running_d_denom.add_(s.abs().sum())
+                d_update = (group['d'] ** 2) / (group['d0'] ** 0.5)
+                running_d_denom.add_(state['s'].mul_(beta3).add_(sliced_grad, alpha=d_update).abs().sum())
 
             running_d_numerator.add_(x0_dot, alpha=d_update)
 
