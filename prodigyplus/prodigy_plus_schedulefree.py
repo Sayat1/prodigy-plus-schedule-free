@@ -250,7 +250,6 @@ class ProdigyPlusScheduleFree(CoreOptimiser):
 
         xy_step = 1 - beta1 * (1 - ckp1)
 
-
         cautious, grams = group['use_cautious'], group['use_grams']
 
         if cautious or grams:
