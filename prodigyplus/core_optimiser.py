@@ -93,10 +93,11 @@ class CoreOptimiser(torch.optim.Optimizer):
         return tensor.ravel()[::slice_p]
 
     @torch.no_grad()
-    def get_running_values_for_group(self, p, group):
+    def get_running_values_for_group(self, group):
         if not self.split_groups:
             group = self.param_groups[0]
 
+        p = group['params'][0]
         numerator, denom = group['running_d_numerator'], group['running_d_denom']
         if numerator.device != p.device:
             group['running_d_numerator'] = numerator = numerator.to(p.device)
