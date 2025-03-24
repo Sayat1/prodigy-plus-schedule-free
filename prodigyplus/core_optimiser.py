@@ -93,21 +93,16 @@ class CoreOptimiser(torch.optim.Optimizer):
         return tensor.ravel()[::slice_p]
 
     @torch.no_grad()
-    def check_running_values_for_group(self, p, group):
+    def get_running_values_for_group(self, p, group):
         if not self.split_groups:
             group = self.param_groups[0]
 
-        if group['running_d_numerator'].device != p.device:
-            group['running_d_numerator'] = group['running_d_numerator'].to(p.device)
-        if group['running_d_denom'].device != p.device:
-            group['running_d_denom'] = group['running_d_denom'].to(p.device)
-
-    @torch.no_grad()
-    def get_running_values_for_group(self, group):
-        if not self.split_groups:
-            group = self.param_groups[0]
-
-        return group['running_d_numerator'], group['running_d_denom']
+        numerator, denom = group['running_d_numerator'], group['running_d_denom']
+        if numerator.device != p.device:
+            group['running_d_numerator'] = numerator = numerator.to(p.device)
+        if denom.device != p.device:
+            group['running_d_denom'] = denom = denom.to(p.device)
+        return numerator, denom
 
     @torch.no_grad()
     def get_d_mean(self):
@@ -200,7 +195,7 @@ class CoreOptimiser(torch.optim.Optimizer):
             dtype = torch.bfloat16 if grad.dtype == torch.float32 else grad.dtype
             sliced_data = self.get_sliced_tensor(p)
 
-            if group['use_focus']:
+            if group.get('use_focus', False):
                 state['exp_avg_sq'] = torch.zeros_like(grad, memory_format=torch.preserve_format).detach()
             else:
                 # NOTE: We don't initialise z/exp_avg here -- subclass needs to do that.
@@ -332,16 +327,10 @@ class CoreOptimiser(torch.optim.Optimizer):
         group['d_prev'] = group['d']
         group['d'] = d
 
-    def on_start_step(self, p, group):
+    def on_start_step(self):
         if self.parameters_to_process is None or self.parameters_to_process == 0:
             # Optimiser hasn't run yet (or is starting a new step), so initialise.
             self.parameters_to_process = sum(len(group['params']) for group in self.param_groups)
-            # Check running values are on-device.
-            if self.split_groups:
-                for other_group in self.param_groups:
-                    self.check_running_values_for_group(p, other_group)
-            else:
-                self.check_running_values_for_group(p, group)
 
     def on_end_step(self):
         self.parameters_to_process -= 1
@@ -417,7 +406,7 @@ class CoreOptimiser(torch.optim.Optimizer):
                 del p0
 
     def update_(self, num, denom, state, group, w):
-        if group['use_focus']:
+        if group.get('use_focus', False):
             # FOCUS: First Order Concentrated Updating Scheme: https://arxiv.org/pdf/2501.12243
             gamma = 0.2
 
@@ -451,7 +440,7 @@ class CoreOptimiser(torch.optim.Optimizer):
 
             row_col_mean = row_var.mean(dim=reduce_dc, keepdim=True).add_(1e-30)
             denom = (row_var.div(row_col_mean) * col_var).sqrt_()
-        elif group['use_focus']:
+        elif group.get('use_focus', False):
             denom = exp_avg_sq.clone()
         else:
             denom = exp_avg_sq.sqrt()
@@ -474,7 +463,7 @@ class CoreOptimiser(torch.optim.Optimizer):
             denom = self.get_denom(state, group)
 
         # Adam EMA updates
-        if group['use_focus']:
+        if group.get('use_focus', False):
             exp_avg_sq.mul_(beta2 * d_k).add_(w, alpha=1 - beta2)
         else:
             if isinstance(exp_avg_sq, list):
@@ -502,7 +491,7 @@ class CoreOptimiser(torch.optim.Optimizer):
     def compute_adaptive_rms(self, state, group, update):
         rms = self.get_rms(update, 1)
 
-        if not group['adaptive_stableadamw']:
+        if not group.get('adaptive_stableadamw', True):
             return rms
 
         max_clip_threshold = self.get_max_clip_threshold()
