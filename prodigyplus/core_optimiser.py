@@ -133,21 +133,17 @@ class CoreOptimiser(torch.optim.Optimizer):
         return tensor.ravel()[::slice_p]
 
     @torch.no_grad()
-    def check_running_values_for_group(self, p, group):
-        if not self.split_groups:
-            group = self.param_groups[0]
-
-        if group['running_d_numerator'].device != p.device:
-            group['running_d_numerator'] = group['running_d_numerator'].to(p.device)
-        if group['running_d_denom'].device != p.device:
-            group['running_d_denom'] = group['running_d_denom'].to(p.device)
-
-    @torch.no_grad()
     def get_running_values_for_group(self, group):
         if not self.split_groups:
             group = self.param_groups[0]
 
-        return group['running_d_numerator'], group['running_d_denom']
+        p = group['params'][0]
+        numerator, denom = group['running_d_numerator'], group['running_d_denom']
+        if numerator.device != p.device:
+            group['running_d_numerator'] = numerator = numerator.to(p.device)
+        if denom.device != p.device:
+            group['running_d_denom'] = denom = denom.to(p.device)
+        return numerator, denom
 
     @torch.no_grad()
     def get_d_mean(self):
@@ -379,12 +375,10 @@ class CoreOptimiser(torch.optim.Optimizer):
         group['d_prev'] = group['d']
         group['d'] = d
 
-    def on_start_step(self, p, group):
+    def on_start_step(self):
         if self.parameters_to_process is None or self.parameters_to_process == 0:
             # Optimiser hasn't run yet (or is starting a new step), so initialise.
             self.parameters_to_process = sum(len(group['params']) for group in self.param_groups)
-            # Check running values are on-device.
-            self.check_running_values_for_group(p, group)
 
     def on_end_step(self):
         self.parameters_to_process -= 1

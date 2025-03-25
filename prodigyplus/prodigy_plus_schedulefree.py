@@ -262,7 +262,7 @@ class ProdigyPlusScheduleFree(CoreOptimiser):
 
     @torch.no_grad()
     def step_param(self, p, group):
-        self.on_start_step(p, group)
+        self.on_start_step()
 
         if not group['train_mode']:
             raise Exception("Not in train mode!")
