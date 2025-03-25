@@ -220,6 +220,9 @@ class ProdigyPlusScheduleFree(CoreOptimiser):
     def update_params(self, y, z, update, group, dlr):
         beta1, _ = group['betas']
         decay = group['weight_decay']
+    
+        if group['weight_decay_by_lr']:
+            decay *= dlr
 
         weight = dlr ** 2
         weight_sum = group['weight_sum'] + weight
@@ -227,18 +230,16 @@ class ProdigyPlusScheduleFree(CoreOptimiser):
 
         xy_step = 1 - beta1 * (1 - ckp1)
 
-        if decay != 0:
-            # Weight decay at Y.
-            if group['weight_decay_by_lr']:
-                decay *= dlr
-
-            y.sub_(y, alpha=decay * xy_step)
-            z.sub_(y, alpha=decay)
-
         cautious, grams = group['use_cautious'], group['use_grams']
 
         if cautious or grams:
             u = (y - z).mul_(ckp1).add_(update, alpha=dlr * xy_step)
+
+            if decay != 0:
+                # Weight decay at Y.
+                z.sub_(y, alpha=decay)
+                y.sub_(y, alpha=decay * xy_step)
+
             z.sub_(update, alpha=dlr)
 
             if cautious:
@@ -255,8 +256,14 @@ class ProdigyPlusScheduleFree(CoreOptimiser):
             del u
         else:
             y.lerp_(end=z, weight=ckp1)
-            y.sub_(update, alpha=dlr * xy_step)
+
+            if decay != 0:
+                # Weight decay at Y.
+                z.sub_(y, alpha=decay)
+                y.sub_(y, alpha=decay * xy_step)
+
             z.sub_(update, alpha=dlr)
+            y.sub_(update, alpha=dlr * xy_step)
 
         return weight_sum
 
