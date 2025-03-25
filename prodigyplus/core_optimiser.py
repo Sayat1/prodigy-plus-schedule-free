@@ -281,7 +281,7 @@ class CoreOptimiser(torch.optim.Optimizer):
             dtype = torch.bfloat16 if grad.dtype == torch.float32 else grad.dtype
             sliced_data = self.get_sliced_tensor(p)
 
-            if group['use_focus']:
+            if group.get('use_focus', False):
                 state['exp_avg_sq'] = torch.zeros_like(grad, memory_format=torch.preserve_format).detach()
                 state['muon'] = False
             else:
@@ -457,7 +457,7 @@ class CoreOptimiser(torch.optim.Optimizer):
             del state['p0']
 
     def update_(self, num, denom, group, w):
-        if group['use_focus']:
+        if group.get('use_focus', False):
             # FOCUS: First Order Concentrated Updating Scheme: https://arxiv.org/pdf/2501.12243
             gamma = 0.1
 
@@ -493,7 +493,7 @@ class CoreOptimiser(torch.optim.Optimizer):
             row_factor = row_var.div(row_col_mean).sqrt_()
             col_factor = col_var.sqrt()
             denom = row_factor * col_factor
-        elif group['use_focus']:
+        elif group.get('use_focus', False):
             denom = exp_avg_sq.clone()
         else:
             denom = exp_avg_sq.sqrt()
@@ -516,7 +516,7 @@ class CoreOptimiser(torch.optim.Optimizer):
             denom = self.get_denom(state, group)
 
         # Adam EMA updates
-        if group['use_focus']:
+        if group.get('use_focus', False):
             exp_avg_sq.mul_(beta2 * d_k * d_k).add_(w, alpha=1 - beta2)
         else:
             if isinstance(exp_avg_sq, list):
