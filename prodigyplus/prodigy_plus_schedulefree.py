@@ -312,7 +312,8 @@ class ProdigyPlusScheduleFree(CoreOptimiser):
             denom = self.update_second_moment(state, group, grad, beta2, y, denom_before_update=use_adopt)
 
             if use_adopt:
-                grad = self.update_(grad, denom, state, group, y).clamp_(-k ** 0.25, k ** 0.25)
+                clamp_range = k ** 0.25
+                grad = self.update_(grad, denom, state, group, y).clamp_(-clamp_range, clamp_range)
 
             exp_avg = self.update_first_moment(state, group, grad, beta1)
 
