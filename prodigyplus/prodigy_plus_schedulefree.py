@@ -191,10 +191,15 @@ class ProdigyPlusScheduleFree(CoreOptimiser):
                          use_adopt=use_adopt, use_orthograd=use_orthograd, use_focus=use_focus, 
                          stochastic_rounding=stochastic_rounding)
 
+    def is_schedulefree(self):
+        if not hasattr(self, "use_schedulefree"):
+            self.use_schedulefree = False
+        return self.use_schedulefree
+
     @torch.no_grad()
     def eval(self):
-        if not self.use_schedulefree:
-            return;
+        if not self.is_schedulefree():
+            return
         for group in self.param_groups:
             if not group['train_mode']:
                 continue
@@ -208,8 +213,8 @@ class ProdigyPlusScheduleFree(CoreOptimiser):
 
     @torch.no_grad()
     def train(self):
-        if not self.use_schedulefree:
-            return;
+        if not self.is_schedulefree():
+            return
         for group in self.param_groups:
             if group['train_mode']:
                 continue
@@ -226,7 +231,7 @@ class ProdigyPlusScheduleFree(CoreOptimiser):
         state, needs_init = self.initialise_state_internal(p, group)
 
         if needs_init:
-            if self.use_schedulefree:
+            if self.is_schedulefree():
                 state['z'] = p.detach().clone(memory_format=torch.preserve_format)
             else:
                 state['exp_avg'] = torch.zeros_like(p.grad, memory_format=torch.preserve_format).detach()
@@ -408,7 +413,7 @@ class ProdigyPlusScheduleFree(CoreOptimiser):
         self.on_start_step()
 
         if p.grad is not None:
-            if self.use_schedulefree:
+            if self.is_schedulefree():
                 self.step_param_schedulefree(p, group)
             else:
                 self.step_param_prodigy(p, group)
