@@ -207,18 +207,16 @@ class CoreOptimiser(torch.optim.Optimizer):
                 )
 
                 if factored_dims is not None:
-                    # Store reduction variables so we don't have to recalculate each step.
                     dc, dr = factored_dims
                     row_shape = list(grad.shape)
                     row_shape[dr] = 1
                     col_shape = list(grad.shape)
                     col_shape[dc] = 1
-                    reduce_dc = dc - 1 if dc > dr else dc
 
                     factored_dtype = torch.float32 if group['factored_fp32'] else grad.dtype
-                    state["exp_avg_sq"] = [torch.zeros(row_shape, dtype=factored_dtype, device=p.device).detach(), 
-                                           torch.zeros(col_shape, dtype=factored_dtype, device=p.device).detach(), 
-                                           dr, dc, reduce_dc]
+                    state["exp_avg_sq_row"] = torch.zeros(row_shape, dtype=factored_dtype, device=p.device).detach()
+                    state["exp_avg_sq_col"] = torch.zeros(col_shape, dtype=factored_dtype, device=p.device).detach()
+                    state["exp_avg_sq_metadata"] = (dr, dc)
                 else:
                     state['exp_avg_sq'] = torch.zeros_like(grad, memory_format=torch.preserve_format).detach()
 
@@ -433,18 +431,17 @@ class CoreOptimiser(torch.optim.Optimizer):
         return update
 
     def get_denom(self, state, group):
-        exp_avg_sq = state['exp_avg_sq']
+        if group.get('use_focus', False):
+            denom = state['exp_avg_sq'].clone()
+        elif 'exp_avg_sq_metadata' in state:
+            row_var, col_var = state["exp_avg_sq_row"], state["exp_avg_sq_col"]
+            dr, dc = state["exp_avg_sq_metadata"]
 
-         # Adam EMA updates
-        if isinstance(exp_avg_sq, list):
-            row_var, col_var, _, _, reduce_dc = exp_avg_sq
-
+            reduce_dc = dc - 1 if dc > dr else dc
             row_col_mean = row_var.mean(dim=reduce_dc, keepdim=True).add_(1e-30)
             denom = (row_var.div(row_col_mean) * col_var).sqrt_()
-        elif group.get('use_focus', False):
-            denom = exp_avg_sq.clone()
         else:
-            denom = exp_avg_sq.sqrt()
+            denom = state['exp_avg_sq'].sqrt()
 
         return denom
    
@@ -455,7 +452,6 @@ class CoreOptimiser(torch.optim.Optimizer):
         return exp_avg.mul_(beta1 * d_k).add_(grad, alpha=1 - beta1)
 
     def update_second_moment(self, state, group, grad, beta2, w, return_denom=True, denom_before_update=False):
-        exp_avg_sq = state['exp_avg_sq']
         d_k = (group['d_prev'] / group['d']) ** 2
 
         denom = None
@@ -465,21 +461,21 @@ class CoreOptimiser(torch.optim.Optimizer):
 
         # Adam EMA updates
         if group.get('use_focus', False):
-            exp_avg_sq.mul_(beta2 * d_k).add_(w, alpha=1 - beta2)
-        else:
-            if isinstance(exp_avg_sq, list):
-                row_var, col_var, dr, dc, _ = exp_avg_sq
+            state['exp_avg_sq'].mul_(beta2 * d_k).add_(w, alpha=1 - beta2)
+        elif 'exp_avg_sq_metadata' in state:
+            row_var, col_var = state["exp_avg_sq_row"], state["exp_avg_sq_col"]
+            dr, dc = state["exp_avg_sq_metadata"]
 
-                row_var.mul_(beta2 * d_k).add_(
-                    grad.norm(dim=dr, keepdim=True).square_().mul_(1 / grad.shape[dr]),
-                    alpha=1 - beta2
-                )
-                col_var.mul_(beta2 * d_k).add_(
-                    grad.norm(dim=dc, keepdim=True).square_().mul_(1 / grad.shape[dc]),
-                    alpha=1 - beta2
-                )
-            else:
-                exp_avg_sq.mul_(beta2 * d_k).addcmul_(grad, grad, value=1 - beta2)
+            row_var.mul_(beta2 * d_k).add_(
+                grad.norm(dim=dr, keepdim=True).square_().mul_(1 / grad.shape[dr]),
+                alpha=1 - beta2
+            )
+            col_var.mul_(beta2 * d_k).add_(
+                grad.norm(dim=dc, keepdim=True).square_().mul_(1 / grad.shape[dc]),
+                alpha=1 - beta2
+            )
+        else:
+            state['exp_avg_sq'].mul_(beta2 * d_k).addcmul_(grad, grad, value=1 - beta2)
 
         if return_denom and denom is None:
             denom = self.get_denom(state, group)
