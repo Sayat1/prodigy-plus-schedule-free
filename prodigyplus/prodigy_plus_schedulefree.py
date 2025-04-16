@@ -193,7 +193,7 @@ class ProdigyPlusScheduleFree(CoreOptimiser):
 
     def is_schedulefree(self):
         if not hasattr(self, "use_schedulefree"):
-            self.use_schedulefree = False
+            self.use_schedulefree = True
         return self.use_schedulefree
 
     @torch.no_grad()
