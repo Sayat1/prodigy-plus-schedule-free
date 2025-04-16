@@ -495,8 +495,7 @@ class CoreOptimiser(torch.optim.Optimizer):
         exp_clip_threshold = state.get('exp_clip_threshold', 1)
 
         beta = 0.9
-        exp_clip_threshold = (exp_clip_threshold * beta) + min(rms, max_clip_threshold) * (1 - beta)
-        state['exp_clip_threshold'] = exp_clip_threshold
+        state['exp_clip_threshold'] = (exp_clip_threshold * beta) + min(rms, max_clip_threshold) * (1 - beta)
 
         return max(rms / exp_clip_threshold, 1)
 
