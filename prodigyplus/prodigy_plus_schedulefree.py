@@ -245,13 +245,12 @@ class ProdigyPlusScheduleFree(CoreOptimiser):
         decay = self.get_weight_decay(group, dlr)
 
         weight_sum = group['weight_sum']
-        weight_step = state.get('weight_step', group['k'])
+        weight_step = state.get('weight_step', group['k'] - 1)
+        state['weight_step'] = weight_step + bool(dlr)
 
-        weight = weight_step ** -0.5
+        weight = (weight_step ** -0.5) * bool(dlr)
         weight_sum += weight
         ckp1 = weight / weight_sum if weight_sum else 0
-
-        state['weight_step'] = weight_step + (1 if dlr > 0 else 0)
 
         xy_step = 1 - beta1 * (1 - ckp1)
 
