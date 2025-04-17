@@ -196,7 +196,10 @@ class CoreOptimiser(torch.optim.Optimizer):
         if needs_init:
             grad = p.grad
 
-            if getattr(self, "print_fp16_warning", True) and (p.dtype == torch.float16 or grad.dtype == torch.float16):
+            if not hasattr(self, "print_fp16_warning"):
+                self.print_fp16_warning = True
+            
+            if self.print_fp16_warning and (p.dtype == torch.float16 or grad.dtype == torch.float16):
                 print(f"[{self.__class__.__name__}] WARNING: Detected float16 parameters! The optimiser is designed for bfloat16 and float32 training only. Other data types may produce unexpected results.")
                 self.print_fp16_warning = False
 
