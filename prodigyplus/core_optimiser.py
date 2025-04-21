@@ -264,7 +264,6 @@ class CoreOptimiser(torch.optim.Optimizer):
             decay *= lr
         if group['use_speed']:
             decay = min(decay, lr * 0.01)
-        group['calc_decay'] = decay
         return decay
     
     def get_bias_correction(self, dlr, beta2, k):
