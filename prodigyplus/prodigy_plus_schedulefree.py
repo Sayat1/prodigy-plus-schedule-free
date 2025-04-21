@@ -88,15 +88,19 @@ class ProdigyPlusScheduleFree(CoreOptimiser):
             of the exponential average of gradients.
             (default: False)
         split_groups (boolean):
-            Track individual adaptation values for each parameter group. For example, if training
-            a text encoder beside a Unet. Note this can have a significant impact on training dynamics.
-            Set to False for original Prodigy behaviour, where all groups share the same values.
+            Calculate d for each parameter group individually. For example, if training a text encoder beside a Unet. Note this can have a 
+            significant impact on training dynamics. Set to False for original Prodigy behaviour, where d is calculated as a single value
+            across all parameter groups.
             (default: True)
         split_groups_mean (boolean):
-            When split_groups is True, use the harmonic mean of learning rates for all groups. This favours
-            a more conservative LR. Calculation remains per-group. If split_groups is False, this value has no effect.
-            Set to False to have each group use its own learning rate. 
-            (default: True)
+            When split_groups is True, the dynamic learning rate for each group is calculated as: 
+                'harmonic mean of d across all groups * per-group LR'
+            instead of:
+                'per-group d * per-group LR'.
+            This provides similar behaviour to the original Prodigy, with the benefit that each group can use its own group LR
+            with a more stable d. This can be good if one or more networks struggle to increase their LR when trained together.
+            If split_groups is False, this value has no effect.
+            (default: False)
         factored (boolean):
             Use factored approximation of the second moment, similar to Adafactor. Reduces memory usage. Disable
             if training results in NaNs or the learning rate fails to grow.
@@ -164,7 +168,7 @@ class ProdigyPlusScheduleFree(CoreOptimiser):
                  use_speed=False,
                  eps=1e-8,
                  split_groups=True,
-                 split_groups_mean=True,
+                 split_groups_mean=False,
                  factored=True,
                  factored_fp32=True,
                  fused_back_pass=False,
