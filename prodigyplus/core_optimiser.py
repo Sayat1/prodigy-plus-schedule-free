@@ -37,6 +37,11 @@ class CoreOptimiser(torch.optim.Optimizer):
                 print(f"[{self.__class__.__name__}] Adam-atan2 ('eps=None') has been disabled (incompatible with 'use_focus').")
                 # We skip the Adam-atan2 branch entirely when FOCUS is enabled.
 
+        # SPEED expects (mostly) unmodified weights during training to determine LR. If weight growth is dampened too much, 
+        # SPEED can massively overestimate the LR.
+        if kwargs['use_speed'] and kwargs['weight_decay'] > 0:
+            print(f"[{self.__class__.__name__}] WARNING: Weight decay with SPEED detected! Decay will be clamped to lr * 0.01. If you encounter instability, please disable weight decay.")
+
         split_groups = kwargs.pop('split_groups')
         split_groups_mean = kwargs.pop('split_groups_mean')
         fused_back_pass = kwargs.pop('fused_back_pass')
@@ -257,6 +262,9 @@ class CoreOptimiser(torch.optim.Optimizer):
         decay = group['weight_decay']
         if group['weight_decay_by_lr']:
             decay *= lr
+        if group['use_speed']:
+            decay = min(decay, lr * 0.01)
+        group['calc_decay'] = decay
         return decay
     
     def get_bias_correction(self, dlr, beta2, k):
