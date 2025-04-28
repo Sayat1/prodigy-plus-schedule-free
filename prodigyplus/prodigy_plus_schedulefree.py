@@ -374,7 +374,7 @@ class ProdigyPlusScheduleFree(CoreOptimiser):
         state = self.initialise_state(p, group)
 
         z_state = state['z']
-        y, z = (p.float(), z_state.float())
+        y, z = p.float(), z_state.float()
 
         grad = p.grad.to(dtype=torch.float32, copy=True)
         dlr = self.get_dlr(group)
