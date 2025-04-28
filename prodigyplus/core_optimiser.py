@@ -422,6 +422,9 @@ class CoreOptimiser(torch.optim.Optimizer):
                 del p0
 
     def update_(self, num, denom, state, group, w):
+        d = group['d']
+
+        num.mul_(d)
         if group.get('use_focus', False):
             # FOCUS: First Order Concentrated Updating Scheme: https://arxiv.org/pdf/2501.12243
             gamma = 0.2
@@ -443,7 +446,7 @@ class CoreOptimiser(torch.optim.Optimizer):
                 # Has the nice property of "clipping" the gradient as well.
                 update = num.atan2_(denom.mul_(b)).mul_(b)
             else:
-                update = num.div_(denom.add_(eps))
+                update = num.div_(denom.add_(d * eps))
 
         return update
 
@@ -463,13 +466,12 @@ class CoreOptimiser(torch.optim.Optimizer):
         return denom
    
     def update_first_moment(self, state, group, grad, beta1):
-        exp_avg = state['exp_avg']
-        d_k = group['d_prev'] / group['d']
+        d_k, exp_avg = group['d'], state['exp_avg']
 
-        return exp_avg.mul_(beta1 * d_k).add_(grad, alpha=1 - beta1)
+        return exp_avg.mul_(beta1).add_(grad, alpha=(1 - beta1) * d_k)
 
     def update_second_moment(self, state, group, grad, beta2, w, return_denom=True, denom_before_update=False):
-        d_k = (group['d_prev'] / group['d']) ** 2
+        d_k = group['d'] ** 2
 
         denom = None
 
@@ -478,21 +480,21 @@ class CoreOptimiser(torch.optim.Optimizer):
 
         # Adam EMA updates
         if group.get('use_focus', False):
-            state['exp_avg_sq'].mul_(beta2 * d_k).add_(w, alpha=1 - beta2)
+            state['exp_avg_sq'].mul_(beta2).add_(w, alpha=(1 - beta2) * d_k)
         elif 'exp_avg_sq_metadata' in state:
             row_var, col_var = state["exp_avg_sq_row"], state["exp_avg_sq_col"]
             dr, dc = state["exp_avg_sq_metadata"]
 
-            row_var.mul_(beta2 * d_k).add_(
+            row_var.mul_(beta2).add_(
                 grad.norm(dim=dr, keepdim=True).square_().mul_(1 / grad.shape[dr]),
-                alpha=1 - beta2
+                alpha=(1 - beta2) * d_k
             )
-            col_var.mul_(beta2 * d_k).add_(
+            col_var.mul_(beta2).add_(
                 grad.norm(dim=dc, keepdim=True).square_().mul_(1 / grad.shape[dc]),
-                alpha=1 - beta2
+                alpha=(1 - beta2) * d_k
             )
         else:
-            state['exp_avg_sq'].mul_(beta2 * d_k).addcmul_(grad, grad, value=1 - beta2)
+            state['exp_avg_sq'].mul_(beta2).addcmul_(grad, grad, value=(1 - beta2) * d_k)
 
         if return_denom and denom is None:
             denom = self.get_denom(state, group)
