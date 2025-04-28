@@ -404,7 +404,7 @@ class CoreOptimiser(torch.optim.Optimizer):
 
             if group['use_speed']:
                 d_update = group['d'] / (group['d0'] ** 0.25)
-                x0_dot /= x0_minus.abs().sum().clamp_min(1e-8)
+                x0_dot /= x0_minus.norm().clamp_min(1e-6)
             else:
                 d_update = (group['d'] ** 2) / (group['d0'] ** 0.5)
                 running_d_denom.add_(state['s'].mul_(beta3).add_(sliced_grad, alpha=d_update).abs().sum())
