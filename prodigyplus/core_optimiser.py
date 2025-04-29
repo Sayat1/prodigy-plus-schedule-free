@@ -332,8 +332,8 @@ class CoreOptimiser(torch.optim.Optimizer):
         if group['use_speed']:
             prev_d_numerator, max_d_numerator = group['prev_d_numerator'], group['max_d_numerator']
 
-            if d_numerator >= max_d_numerator and prev_d_numerator > 0:
-                d_hat_coef = 0.75 * (d_coef ** 0.25)
+            if k >= 6 and d_numerator >= max_d_numerator and d_numerator > 0 and prev_d_numerator > 0:
+                d_hat_coef = 2.0 * (d_coef ** 0.25)
                 d_hat = min(2 ** 0.5, (d_numerator / prev_d_numerator) ** d_hat_coef)
                 d = max(d, d * d_hat)
         elif d_denom > 0:
@@ -403,8 +403,8 @@ class CoreOptimiser(torch.optim.Optimizer):
             x0_dot = torch.dot(sliced_grad, x0_minus)
 
             if group['use_speed']:
-                d_update = group['d'] / (group['d0'] ** 0.25)
-                x0_dot /= x0_minus.norm().clamp_min(1e-6)
+                d_update = group['d0'] ** 0.75 # No effect on training; keeps scale at same magnitude as regular Prodigy
+                x0_dot /= x0_minus.norm().sqrt().clamp_min(1e-8)
             else:
                 d_update = (group['d'] ** 2) / (group['d0'] ** 0.5)
                 running_d_denom.add_(state['s'].mul_(beta3).add_(sliced_grad, alpha=d_update).abs().sum())
