@@ -403,7 +403,7 @@ class ProdigyPlusScheduleFree(CoreOptimiser):
             if group['use_orthograd']:
                 update = self.orthograd_(y, update)
 
-            self.update_prodigy(state, group, p.grad, p)
+            self.update_prodigy(state, group, p.grad, z_state)
             self.update_params(y, z, update, state, group, dlr)
 
             self.smart_copy(p, y, stochastic, True)
