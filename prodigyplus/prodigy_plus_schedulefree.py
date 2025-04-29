@@ -270,7 +270,7 @@ class ProdigyPlusScheduleFree(CoreOptimiser):
         return weight_sum
 
     @torch.no_grad()
-    def step_param(self, p, group):
+    def step_param(self, p, group, i):
         self.on_start_step(p, group)
 
         if not group['train_mode']:
@@ -311,9 +311,9 @@ class ProdigyPlusScheduleFree(CoreOptimiser):
             update = None
 
             if use_adopt and group['k'] == 1:
-                self.update_second_moment(state, group, grad, 0, y, return_denom=False)
+                self.update_second_moment(state, group, grad, 0, y, group_index=i, return_denom=False)
             else:
-                denom = self.update_second_moment(state, group, grad, beta2, y, denom_before_update=use_adopt)
+                denom = self.update_second_moment(state, group, grad, beta2, y, group_index=i, denom_before_update=use_adopt)
                 if group['use_bias_correction'] and rho_t <= 4.0:
                     update = grad
                 else:

@@ -1,6 +1,32 @@
 import math
 import torch
 from statistics import harmonic_mean
+import pandas as pd
+
+def convert_tb_data(filepath):
+    from tensorflow.python.summary.summary_iterator import summary_iterator
+
+    def convert_tfevent(filepath):
+        return pd.DataFrame([
+            parse_tfevent(e) for e in summary_iterator(filepath) if len(e.summary.value)
+        ])
+
+    def parse_tfevent(tfevent):
+        return dict(
+            name=tfevent.summary.value[0].tag,
+            step=tfevent.step,
+            value=float(tfevent.summary.value[0].simple_value),
+        )
+    
+    columns_order = ['name', 'step', 'value']
+    
+    out = convert_tfevent(filepath=filepath)
+
+    # Concatenate (and sort) all partial individual dataframes
+    all_df = out[columns_order]
+        
+    return all_df.reset_index(drop=True)
+
 
 class CoreOptimiser(torch.optim.Optimizer):
     def __init__(self, params, **kwargs):
@@ -47,6 +73,7 @@ class CoreOptimiser(torch.optim.Optimizer):
         defaults['weight_sum'] = defaults['d_denom'] = defaults['d_numerator'] = 0
         defaults['train_mode'] = True
         defaults['k'] = 1
+        defaults['d_k'] = 1
 
         super().__init__(params, defaults)
 
@@ -62,6 +89,38 @@ class CoreOptimiser(torch.optim.Optimizer):
         self.parameters_to_process = None
         self.shared_d = None
         self.fused_back_pass = fused_back_pass
+
+        self.precalculated_d = []
+        self.precalculated_dk =[]
+        df = convert_tb_data("/content/events.out.tfevents.1745869403.ebb5d541f72a.3988.0")
+        self.precalculated_d.append(self.lr_from_tb(df,"lr/d*lr/textencoder 1"))
+        self.precalculated_d.append(self.lr_from_tb(df,"lr/d*lr/textencoder 2"))
+        self.precalculated_d.append(self.lr_from_tb(df,"lr/d*lr/unet"))
+
+        self.precalculated_dk.append(self.lr_from_tb(df,"d_k/textencoder 1"))
+        self.precalculated_dk.append(self.lr_from_tb(df,"d_k/textencoder 2"))
+        self.precalculated_dk.append(self.lr_from_tb(df,"d_k/unet"))
+        # def warmup(step: int,warmup_step:int):
+        #     if step < warmup_step:
+        #         return float(step) / float(warmup_step)
+        #     else:
+        #         return 1
+        
+        # def lr_switch(step: int,warmup_step:int):
+        #     if step < warmup_step:
+        #         return 0.1
+        #     else:
+        #         return 1
+            
+        # self.precalculated_d.append(lambda step: warmup(step,150) * 9e-4)
+        # self.precalculated_d.append(lambda step: warmup(step,150) * 1e-4)
+        # self.precalculated_d.append(lambda step: lr_switch(step,750)* 3e-4)
+
+        # self.precalculated_d.append(lambda step: 9e-4)
+        # self.precalculated_d.append(lambda step: 1e-4)
+        # self.precalculated_d.append(None)
+        print(f"precalculated_d {len(self.precalculated_d)}")
+        print(f"precalculated_d_k {len(self.precalculated_dk)}")
 
         # Use tensors to keep everything on device during parameter loop.
         for group in (self.param_groups if self.split_groups else self.param_groups[:1]):
@@ -87,6 +146,17 @@ class CoreOptimiser(torch.optim.Optimizer):
     
     def supports_fused_back_pass(self):
         return True
+
+    def lr_from_tb(self, df:pd.DataFrame,column_name:str):
+        group_df = df[df['name'] == column_name]
+        init_lr = group_df['value'].iloc[0]
+        changed = group_df[group_df['value'] != group_df['value'].shift(1)]
+        def lr_lambda(current_step:int):
+            try:
+                return changed[changed['step'] <= current_step]['value'].iloc[-1]
+            except IndexError:
+                return init_lr
+        return lr_lambda
 
     @torch.no_grad()
     def get_sliced_tensor(self, tensor, slice_p=11):
@@ -282,26 +352,30 @@ class CoreOptimiser(torch.optim.Optimizer):
         running_d_numerator.zero_()
         running_d_denom.zero_()
 
+
     @torch.no_grad()
-    def calculate_d(self, group):
+    def calculate_d(self, group , group_index=0):
         k = group['k']
         prodigy_steps = group['prodigy_steps']
         
         if prodigy_steps > 0 and k >= prodigy_steps:
             return
 
-        d, d_coef = group['d'], group['d_coef']
-        d_numerator, d_denom = group['d_numerator'], group['d_denom']
+        if self.precalculated_d[group_index] != None:
+            d = self.precalculated_d[group_index](k)
+        else:
+            d, d_coef = group['d'], group['d_coef']
+            d_numerator, d_denom = group['d_numerator'], group['d_denom']
 
-        if group['use_speed']:
-            prev_d_numerator, max_d_numerator = group['prev_d_numerator'], group['max_d_numerator']
+            if group['use_speed']:
+                prev_d_numerator, max_d_numerator = group['prev_d_numerator'], group['max_d_numerator']
 
-            if d_numerator >= max_d_numerator and prev_d_numerator > 0:
-                d_hat = min(2 ** 0.5, (d_numerator / prev_d_numerator) ** 0.75)
-                d = max(d, d * d_hat * d_coef)
-        elif d_denom > 0:
-            d_hat = (d_coef * d_numerator) / d_denom
-            d = max(d, d_hat)
+                if d_numerator >= max_d_numerator and prev_d_numerator > 0:
+                    d_hat = min(2 ** 0.5, (d_numerator / prev_d_numerator) ** 0.75)
+                    d = max(d, d * d_hat * d_coef)
+            elif d_denom > 0:
+                d_hat = (d_coef * d_numerator) / d_denom
+                d = max(d, d_hat)
 
         group['d_prev'] = group['d']
         group['d'] = d
@@ -329,8 +403,8 @@ class CoreOptimiser(torch.optim.Optimizer):
 
                     self.update_d_stats_and_reset(group)
 
-                for group in self.param_groups:
-                    self.calculate_d(group)
+                for i, group in enumerate(self.param_groups):
+                    self.calculate_d(group,i)
                     group['weight_sum'] = group.get('running_weight_sum', 0)
                     group['k'] += 1
 
@@ -442,10 +516,13 @@ class CoreOptimiser(torch.optim.Optimizer):
 
         return exp_avg.mul_(beta1 * d_k).add_(grad, alpha=1 - beta1)
 
-    def update_second_moment(self, state, group, grad, beta2, w, return_denom=True, denom_before_update=False):
+    def update_second_moment(self, state, group, grad, beta2, w, group_index=0, return_denom=True, denom_before_update=False):
         exp_avg_sq = state['exp_avg_sq']
-        d_k = (group['d_prev'] / group['d']) ** 2
-
+        if self.precalculated_d[group_index] != None:
+            d_k = self.precalculated_d[group_index](group['k'])
+        else:
+            d_k = (group['d_prev'] / group['d']) ** 2
+        group['d_k'] = d_k
         denom = None
 
         if return_denom and denom_before_update:
@@ -551,12 +628,12 @@ class CoreOptimiser(torch.optim.Optimizer):
         self.kohya_original_patch_adafactor_fused = None
 
     @torch.no_grad()
-    def step_param(self, p, group):
+    def step_param(self, p, group, i):
         raise Exception("Not implemented!")            
 
     @torch.no_grad()
     def step_parameter(self, p, group, i):
-        self.step_param(p, group)
+        self.step_param(p, group, i)
 
     @torch.no_grad()
     def step(self, closure=None):
@@ -577,8 +654,8 @@ class CoreOptimiser(torch.optim.Optimizer):
             with torch.enable_grad():
                 loss = closure()
 
-        for param_group in self.param_groups:
+        for i, param_group in enumerate(self.param_groups):
             for p in param_group["params"]:
-                self.step_param(p, param_group)
+                self.step_param(p, param_group, i)
 
         return loss
