@@ -9,7 +9,7 @@ SPLIT_GROUPS_MEAN, FACTORED_GRAD_DTYPE, DECOUPLE_LR, CAUTIOUS, GRAMS, ADOPT, ORT
 
 class ProdigyPlusScheduleFree(CoreOptimiser):
     r"""
-    An optimiser based on Prodigy that includes schedule-free logic. Has additional improvements in the form of optional StableAdamW 
+    An optimiser based on Prodigy and Schedule-Free. Has additional improvements in the form of optional StableAdamW 
     gradient scaling and Adam-atan2 updates, per parameter group adaptation, lower memory utilisation and fused back pass support.
 
     Based on code from:
@@ -21,8 +21,8 @@ class ProdigyPlusScheduleFree(CoreOptimiser):
     https://github.com/konstmish/prodigy/pull/22
     https://github.com/konstmish/prodigy/pull/20
 
-    As with the reference implementation of schedule-free, a constant scheduler should be used, along with the appropriate
-    calls to `train()` and `eval()`. See the schedule-free documentation for more details: https://github.com/facebookresearch/schedule_free
+    As with the reference implementation of Schedule-Free, a constant scheduler should be used, along with the appropriate
+    calls to `train()` and `eval()`. See the Schedule-Free documentation for more details: https://github.com/facebookresearch/schedule_free
     
     If you do use another scheduler, linear or cosine is preferred, as a restarting scheduler can confuse Prodigy's adaptation logic.
 
@@ -32,23 +32,22 @@ class ProdigyPlusScheduleFree(CoreOptimiser):
     1) `use_stableadamw=True,eps=1e8` (or any reasonable positive epsilon)
     2) `eps=None` (Adam-atan2, scale invariant. Will disable StableAdamW if enabled.)
 
-    By default, `split_groups` and `split_groups_mean` are set to `True`, so each parameter group will have its own `d` values, however,
-    they will all use the harmonic mean for the dynamic learning rate. To make each group use its own dynamic LR, set `split_groups_mean` to False.
-    To use the reference Prodigy behaviour where all groups are combined, set `split_groups` to False. 
+    By default, `split_groups=True`, so each parameter group will have its own `d` values. To use the reference Prodigy behaviour 
+    where all groups are combined, set `split_groups=False`.
     
     In some scenarios, it can be advantageous to freeze Prodigy's adaptive stepsize after a certain number of steps. This
-    can be controlled via the `prodigy_steps` settings. This will also free any Prodigy-specific memory used by the
-    optimiser (though with all the memory-related improvements, this should not be significant unless you're training
-    very large models).
+    can be controlled via the `prodigy_steps` settings. This will also free any Prodigy-specific memory used by the optimiser 
+    (though with all the memory-related improvements, this should not be significant unless you're training very large models).
 
     Arguments:
         params (iterable):
-            Iterable of parameters to optimize or dicts defining parameter groups.
+            Iterable of parameters to optimise or dicts defining parameter groups.
         lr (float):
             Learning rate adjustment parameter. Increases or decreases the Prodigy learning rate.
             (default: 1.0)
         betas (Tuple[float, float], optional): 
-            Coefficients used for computing running averages of gradient and its square.
+            Coefficients used for computing running averages of gradient and its square. For Schedule-Free, it can be worth
+            experimenting with 0.95-0.98 for beta1.
             (default: (0.9, 0.99))
         eps (float):
             Term added to the denominator outside of the root operation to improve numerical stability. If set to None,
@@ -73,15 +72,15 @@ class ProdigyPlusScheduleFree(CoreOptimiser):
             SPEED (use_speed=True).
             (default: False).
         d0 (float):
-            Initial estimate for Prodigy. Also serves as the minimum learning rate.
+            Initial estimate for Prodigy. Should not require adjustment, but can be increased to 1e-5 or 1e-4 if the optimiser struggles to converge.
             (default: 1e-6).
         d_coef (float):
-            Coefficient in the expression for the estimate of d. Values such as 0.5 and 2.0 typically work as well. 
-            Changing this parameter is the preferred way to tune the method.
+            Coefficient in the expression for the estimate of d. Values such as 0.5 and 2.0 typically work as well. Changing this parameter 
+            is the preferred way to tune the method.
             (default: 1.0)
         prodigy_steps (int):
-            Freeze Prodigy stepsize adjustments after a certain optimiser step and releases all state memory required
-            by Prodigy.
+            If greater than zero, disable Prodigy's stepsize adjustments after the specified optimiser step and release all state memory 
+            required by Prodigy.
             (default: 0)
         split_groups (boolean):
             Calculate d for each parameter group individually. For example, if training a text encoder beside a Unet. Note this can have a 
@@ -106,8 +105,7 @@ class ProdigyPlusScheduleFree(CoreOptimiser):
             (default: True)
         features (enum or str):
             Enable various experimental and uncommon features using flags, either as enum values or strings. Features can be 
-            specified alone (features=SPEED or features='SPEED'), or combined (features=SPEED|CAUTIOUS or features='SPEED,CAUTIOUS' 
-            or features='SPEED|CAUTIOUS').
+            specified alone (features=SPEED or features='SPEED'), or combined (features=SPEED|CAUTIOUS or features='SPEED|CAUTIOUS').
             (default: None)
 
             SPLIT_GROUPS_MEAN:

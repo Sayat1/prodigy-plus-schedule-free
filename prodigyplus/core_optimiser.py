@@ -37,7 +37,7 @@ class CoreOptimiser(torch.optim.Optimizer):
         if features is None:
             features = CoreOptimiser.ExtraFeatures.NONE
         elif isinstance(features, str):
-            separators = [",", "|"]
+            separators = [",", "|"] # Support commas as natural separator.
             for sep in separators:
                 if sep in features:
                     tokens = [t.strip() for t in features.split(sep)]
