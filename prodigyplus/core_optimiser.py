@@ -437,13 +437,14 @@ class CoreOptimiser(torch.optim.Optimizer):
             eps = group['eps']
 
             if eps is None:
-                # Approximate scaling for a regular Adam-style update.
-                b = self.get_max_clip_threshold()
-
                 # Adam-atan2. Use atan2 rather than epsilon and division 
                 # for parameter updates (https://arxiv.org/abs/2407.05872).
                 # Has the nice property of "clipping" the gradient as well.
-                update = num.atan2_(denom.mul_(b)).mul_(b)
+
+                # b = 1, a = 1 / arctan(1) = ~1.27. Page 35 of paper. This
+                # clips most updates to ~2.0
+                a = 1.2732395
+                update = num.atan2_(denom).mul_(a)
             else:
                 update = num.div_(denom.add_(d * eps))
 
@@ -499,23 +500,6 @@ class CoreOptimiser(torch.optim.Optimizer):
             denom = self.get_denom(state, group)
 
         return denom
-
-    def get_max_clip_threshold(self):
-        return 4
-
-    def compute_adaptive_rms(self, state, group, update):
-        rms = self.get_rms(update, 1)
-
-        if not group.get('adaptive_stableadamw', True):
-            return rms
-
-        max_clip_threshold = self.get_max_clip_threshold()
-        exp_clip_threshold = state.get('exp_clip_threshold', 1)
-
-        beta = 0.9
-        state['exp_clip_threshold'] = (exp_clip_threshold * beta) + min(rms, max_clip_threshold) * (1 - beta)
-
-        return max(rms / exp_clip_threshold, 1)
 
     def get_rms(self, tensor, eps=1e-8):
         return tensor.norm(2).div(tensor.numel() ** 0.5).clamp_min(eps)

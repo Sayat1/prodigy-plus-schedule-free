@@ -119,12 +119,6 @@ class ProdigyPlusScheduleFree(CoreOptimiser):
             Scales parameter updates by their root-mean-square (RMS), in essence identical to Adafactor's update scaling. 
             Set to False if the adaptive learning rate never improves.
             (default: True)
-        adaptive_stableadamw (boolean):
-            When StableAdamW is enabled, use the exponential moving average of the update RMS to scale parameter updates. 
-            This allows for larger updates early in training, which Prodigy requires to correctly adapt the step size, 
-            and will naturally trend towards 1. If False, updates will always be scaled so they have an RMS of 1 
-            (which may be more appropriate for fine-tuning).
-            (default: True)
         use_cautious (boolean):
             Experimental. Perform "cautious" updates, as proposed in https://arxiv.org/pdf/2411.16085. Modifies
             the update to isolate and boost values that align with the current gradient. Note that we do not have
@@ -173,7 +167,6 @@ class ProdigyPlusScheduleFree(CoreOptimiser):
                  factored_fp32=True,
                  fused_back_pass=False,
                  use_stableadamw=True,
-                 adaptive_stableadamw=True,
                  use_cautious=False,
                  use_grams=False,
                  use_adopt=False,
@@ -190,7 +183,7 @@ class ProdigyPlusScheduleFree(CoreOptimiser):
                          eps=eps, split_groups=split_groups,
                          split_groups_mean=split_groups_mean, factored=factored, factored_fp32=factored_fp32,
                          fused_back_pass=fused_back_pass, 
-                         use_stableadamw=use_stableadamw, adaptive_stableadamw=adaptive_stableadamw,
+                         use_stableadamw=use_stableadamw,
                          use_cautious=use_cautious, use_grams=use_grams, 
                          use_adopt=use_adopt, use_orthograd=use_orthograd, use_focus=use_focus, 
                          stochastic_rounding=stochastic_rounding)
@@ -337,8 +330,7 @@ class ProdigyPlusScheduleFree(CoreOptimiser):
 
         if update is not None:
             if group['use_stableadamw']:
-                rms = self.compute_adaptive_rms(state, group, update)
-                update.mul_(1 / rms)
+                dlr *= 1 / self.get_rms(update, 1.0)
 
             if group['use_orthograd']:
                 update = self.orthograd_(y, update)
@@ -394,8 +386,7 @@ class ProdigyPlusScheduleFree(CoreOptimiser):
 
         if update is not None:
             if group['use_stableadamw']:
-                rms = self.compute_adaptive_rms(state, group, update)
-                update.mul_(1 / rms)
+                dlr *= 1 / self.get_rms(update, 1.0)
 
             if group['use_orthograd']:
                 update = self.orthograd_(y, update)
