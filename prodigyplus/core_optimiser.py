@@ -105,7 +105,7 @@ class CoreOptimiser(torch.optim.Optimizer):
         self.shared_d = None
         self.fused_back_pass = fused_back_pass
 
-        self.print_fp16_warning = True
+        self.print_dtype_warning = True
 
         # Use tensors to keep everything on device during parameter loop.
         for group in (self.param_groups if self.split_groups else self.param_groups[:1]):
@@ -242,12 +242,12 @@ class CoreOptimiser(torch.optim.Optimizer):
         if needs_init:
             grad = p.grad
 
-            if not hasattr(self, "print_fp16_warning"):
-                self.print_fp16_warning = True
+            if not hasattr(self, "print_dtype_warning"):
+                self.print_dtype_warning = True
             
-            if self.print_fp16_warning and (p.dtype == torch.float16 or grad.dtype == torch.float16):
-                print(f"[{self.__class__.__name__}] WARNING: Detected float16 parameters! The optimiser is designed for bfloat16 and float32 training only. Other data types may produce unexpected results.")
-                self.print_fp16_warning = False
+            if self.print_dtype_warning and (p.dtype not in {torch.bfloat16, torch.float32} or grad.dtype not in {torch.bfloat16, torch.float32}):
+                print(f"[{self.__class__.__name__}] Unsupported parameter dtype! The optimiser is designed for bf16 and fp32 training only. Other dtypes may produce unexpected results.")
+                self.print_dtype_warning = False
 
             dtype = torch.bfloat16 if grad.dtype == torch.float32 else grad.dtype
             sliced_data = self.get_sliced_tensor(p)
