@@ -1,5 +1,5 @@
-import math
 import torch
+import re
 from statistics import harmonic_mean
 from enum import Flag, auto
 
@@ -37,24 +37,42 @@ class CoreOptimiser(torch.optim.Optimizer):
         if features is None:
             features = CoreOptimiser.ExtraFeatures.NONE
         elif isinstance(features, str):
-            separators = [",", "|"] # Support commas as natural separator.
-            for sep in separators:
-                if sep in features:
-                    tokens = [t.strip() for t in features.split(sep)]
-                    break
-                else:
-                    tokens = [features.strip()]
-
+            tokens = [t for t in re.split(r'\s*[|,]\s*', features.upper()) if t]
             features = CoreOptimiser.ExtraFeatures.NONE
-            unknown_features = []
             for t in tokens:
                 try:
-                    features |= CoreOptimiser.ExtraFeatures[t.upper()]
+                    features |= CoreOptimiser.ExtraFeatures[t]
                 except KeyError:
-                    unknown_features.append(t)
-            if unknown_features:
-                valid = ', '.join(f.name for f in CoreOptimiser.ExtraFeatures)
-                raise ValueError(f"[{self.__class__.__name__}] Unknown feature(s): {', '.join(unknown_features)}. Valid features are: {valid}")
+                    valid = ', '.join(f.name for f in CoreOptimiser.ExtraFeatures)
+                    raise ValueError(f"[{self.__class__.__name__}] Unknown feature: {t}. Valid features are: {valid}")
+
+        # Maintain backwards-compatibility with previous optimiser arguments.
+        # Tuple has the new feature flag, and bool if we should invert passed value.
+        old_arguments_map = {
+            'split_groups_mean': (CoreOptimiser.ExtraFeatures.SPLIT_GROUPS_MEAN, False),
+            'factored_fp32': (CoreOptimiser.ExtraFeatures.FACTORED_GRAD_DTYPE, True),
+            'weight_decay_by_lr': (CoreOptimiser.ExtraFeatures.DECOUPLE_LR, True),
+            'use_cautious': (CoreOptimiser.ExtraFeatures.CAUTIOUS, False),
+            'use_grams': (CoreOptimiser.ExtraFeatures.GRAMS, False),
+            'use_adopt': (CoreOptimiser.ExtraFeatures.ADOPT, False),
+            'use_orthograd': (CoreOptimiser.ExtraFeatures.ORTHOGRAD, False),
+            'use_focus': (CoreOptimiser.ExtraFeatures.FOCUS, False),
+            'use_speed': (CoreOptimiser.ExtraFeatures.SPEED, False)
+        }
+
+        deprecated_args = []
+        for arg_name, (feature_flag, invert) in old_arguments_map.items():
+            value = kwargs.pop(arg_name, None)
+            if value is None:
+                continue
+            deprecated_args.append(arg_name)
+            if invert ^ value:
+                features |= feature_flag
+            else:
+                features &= ~feature_flag
+
+        if deprecated_args:
+            print(f"[{self.__class__.__name__}] Deprecated arguments used: {', '.join(deprecated_args)}. Please migrate to the 'features=' argument.")
 
         def is_on(flag):
             return bool(features & flag)

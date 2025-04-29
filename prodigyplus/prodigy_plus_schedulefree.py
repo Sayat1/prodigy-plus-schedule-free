@@ -12,6 +12,8 @@ class ProdigyPlusScheduleFree(CoreOptimiser):
     An optimiser based on Prodigy and Schedule-Free. Has additional improvements in the form of optional StableAdamW 
     gradient scaling and Adam-atan2 updates, per parameter group adaptation, lower memory utilisation and fused back pass support.
 
+    The optimiser is designed for bfloat16 and/for float32. Other dtypes may work, but are unsupported.
+
     Based on code from:
     https://github.com/facebookresearch/schedule_free
     https://github.com/konstmish/prodigy
@@ -49,28 +51,13 @@ class ProdigyPlusScheduleFree(CoreOptimiser):
             Coefficients used for computing running averages of gradient and its square. For Schedule-Free, it can be worth
             experimenting with 0.95-0.98 for beta1.
             (default: (0.9, 0.99))
-        eps (float):
-            Term added to the denominator outside of the root operation to improve numerical stability. If set to None,
-            Adam-atan2 is used instead. This removes the need for epsilon tuning, but may not work well in all situations.
-            (default: 1e-8).
         beta3 (float):
             Coefficient for computing the Prodigy stepsize using running averages. If set to None, uses the value of 
             square root of beta2 
             (default: None).
-        use_schedulefree (boolean):
-            Use the Schedule-Free version of the optimiser. If set to False, the optimiser will use a modified version of the
-            reference Prodigy implementation and may require the use of an external LR schedule (cosine is recommended).
-            (default: True).
         weight_decay (float):
-            Decoupled weight decay. Use the weight_decay_by_lr setting to determine if decay should be multiplied by the
-            adaptive learning rate.
+            Decoupled weight decay. To also stop decay from being multiplied by the learning rate, enable the `DECOUPLE_LR` feature.
             (default: 0).
-        use_bias_correction (boolean):
-            Use the RAdam variant of schedule-free (https://github.com/facebookresearch/schedule_free/blob/main/schedulefree/radam_schedulefree.py).
-            This combines bias correction with automatic warmup. Please note this will significantly dampen Prodigy's adaptive stepsize
-            calculations -- it can take up to 10 times longer to start adjusting the learning rate. This can be mitigated somewhat by enabling
-            SPEED (use_speed=True).
-            (default: False).
         d0 (float):
             Initial estimate for Prodigy. Should not require adjustment, but can be increased to 1e-5 or 1e-4 if the optimiser struggles to converge.
             (default: 1e-6).
@@ -82,6 +69,10 @@ class ProdigyPlusScheduleFree(CoreOptimiser):
             If greater than zero, disable Prodigy's stepsize adjustments after the specified optimiser step and release all state memory 
             required by Prodigy.
             (default: 0)
+        eps (float):
+            Term added to the denominator outside of the root operation to improve numerical stability. If set to None,
+            Adam-atan2 is used instead. This removes the need for epsilon tuning, but may not work well in all situations.
+            (default: 1e-8).
         split_groups (boolean):
             Calculate d for each parameter group individually. For example, if training a text encoder beside a Unet. Note this can have a 
             significant impact on training dynamics. Set to False for original Prodigy behaviour, where d is calculated as a single value
@@ -91,21 +82,31 @@ class ProdigyPlusScheduleFree(CoreOptimiser):
             Use factored approximation of the second moment, similar to Adafactor. Reduces memory usage. Disable
             if training results in NaNs or the learning rate fails to grow.
             (default: True)
-        fused_back_pass (boolean):
-            Stops the optimiser from running the normal step method. Set to True if using fused backward pass. Really only
-            needed for scripts and UIs that call the regular step method even when using fused backward pass (OneTrainer).
-            (default: False)
+        use_bias_correction (boolean):
+            Use the RAdam variant of schedule-free (https://github.com/facebookresearch/schedule_free/blob/main/schedulefree/radam_schedulefree.py).
+            This combines bias correction with automatic warmup. Please note this will significantly dampen Prodigy's adaptive stepsize
+            calculations -- it can take up to 10 times longer to start adjusting the learning rate. This can be mitigated somewhat by enabling
+            SPEED (use_speed=True).
+            (default: False).
         use_stableadamw (boolean):
             Scales parameter updates by their root-mean-square (RMS), in essence identical to Adafactor's update scaling. 
             Set to False if the adaptive learning rate never improves.
             (default: True)
+        use_schedulefree (boolean):
+            Use the Schedule-Free version of the optimiser. If set to False, the optimiser will use a modified version of the
+            reference Prodigy implementation and may require the use of an external LR schedule (cosine is recommended).
+            (default: True).
         stochastic_rounding (boolean):
             Use stochastic rounding for bfloat16 weights (https://github.com/pytorch/pytorch/issues/120376). Brings
-            bfloat16 training performance close to that of float32.
+            bfloat16 training performance closer to that of float32.
             (default: True)
+        fused_back_pass (boolean):
+            Stops the optimiser from running the normal step method. Set to True if using fused backward pass. Really only
+            needed for scripts and UIs that call the regular step method even when using fused backward pass (OneTrainer).
+            (default: False)
         features (enum or str):
-            Enable various experimental and uncommon features using flags, either as enum values or strings. Features can be 
-            specified alone (features=SPEED or features='SPEED'), or combined (features=SPEED|CAUTIOUS or features='SPEED|CAUTIOUS').
+            Enable various experimental and uncommon features via enum or string flags. Supports single (features=SPEED or features='SPEED') 
+            or combined values (features=SPEED|CAUTIOUS|ADOPT or features='SPEED|CAUTIOUS|ADOPT').
             (default: None)
 
             SPLIT_GROUPS_MEAN:
@@ -122,7 +123,7 @@ class ProdigyPlusScheduleFree(CoreOptimiser):
                 enabling this can slightly reduce memory usage. Ignored if factored is False.
             DECOUPLE_LR:
                 By default, weight decay is multiplied by the adaptive learning rate (as per the PyTorch implementation of AdamW).
-                Enabling this feature will decouple decay from the LR. Its effect will be stronger and less sensitive to training dynamics.
+                Enabling this feature will stop decay being multiplied by the LR. Its effect will be stronger and less sensitive to training dynamics.
             SPEED:
                 Highly experimental. Simplified Prodigy with rElativE D. This decouples Prodigy from the magnitude of the weights and uses 
                 a more straightforward heuristic for adapting the stepsize. It can provide better LR adaptation when training multiple networks,
@@ -160,12 +161,13 @@ class ProdigyPlusScheduleFree(CoreOptimiser):
                  eps=1e-8,
                  split_groups=True,
                  factored=True,
-                 fused_back_pass=False,
                  use_bias_correction=False,
                  use_stableadamw=True,
                  use_schedulefree=True,
                  stochastic_rounding=True,
-                 features=None):
+                 fused_back_pass=False,
+                 features=None,
+                 **kwargs):
 
         self.use_schedulefree = use_schedulefree
 
@@ -178,7 +180,8 @@ class ProdigyPlusScheduleFree(CoreOptimiser):
                          fused_back_pass=fused_back_pass, 
                          use_stableadamw=use_stableadamw,
                          stochastic_rounding=stochastic_rounding,
-                         features=features)
+                         features=features,
+                         **kwargs)
 
     def is_schedulefree(self):
         if not hasattr(self, "use_schedulefree"):
