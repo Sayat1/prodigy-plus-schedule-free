@@ -518,8 +518,8 @@ class CoreOptimiser(torch.optim.Optimizer):
 
     def update_second_moment(self, state, group, grad, beta2, w, group_index=0, return_denom=True, denom_before_update=False):
         exp_avg_sq = state['exp_avg_sq']
-        if self.precalculated_d[group_index] != None:
-            d_k = self.precalculated_d[group_index](group['k'])
+        if self.precalculated_dk[group_index] != None:
+            d_k = self.precalculated_dk[group_index](group['k'])
         else:
             d_k = (group['d_prev'] / group['d']) ** 2
         group['d_k'] = d_k
