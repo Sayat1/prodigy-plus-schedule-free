@@ -106,7 +106,7 @@ class ProdigyPlusScheduleFree(CoreOptimiser):
             (default: False)
         features (enum or str):
             Enable various experimental and uncommon features via enum or string flags. Supports single (features=SPEED or features='SPEED') 
-            or combined values (features=SPEED|CAUTIOUS|ADOPT or features='SPEED|CAUTIOUS|ADOPT').
+            or combined values (features=SPEED|CAUTIOUS|ADOPT or features='SPEED|CAUTIOUS|ADOPT' or features='SPEED,CAUTIOUS,ADOPT').
             (default: None)
 
             SPLIT_GROUPS_MEAN:
