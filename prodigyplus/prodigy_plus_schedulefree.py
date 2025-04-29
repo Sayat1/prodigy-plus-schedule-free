@@ -389,9 +389,11 @@ class ProdigyPlusScheduleFree(CoreOptimiser):
             del grad
         else:
             denom = self.update_second_moment(state, group, grad, beta2, y, denom_before_update=use_adopt)
+
             if use_bias_correction and rho_t <= 4.0:
                 update = grad
             else:
+                grad.mul_(group['d'])
                 update = self.update_(grad, denom, state, group, y)
             del denom
 

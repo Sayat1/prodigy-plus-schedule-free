@@ -424,7 +424,6 @@ class CoreOptimiser(torch.optim.Optimizer):
     def update_(self, num, denom, state, group, w):
         d = group['d']
 
-        num.mul_(d)
         if group.get('use_focus', False):
             # FOCUS: First Order Concentrated Updating Scheme: https://arxiv.org/pdf/2501.12243
             gamma = 0.2
