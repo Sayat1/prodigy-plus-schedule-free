@@ -1,5 +1,11 @@
 import torch
 from .core_optimiser import CoreOptimiser
+ExtraFeatures = CoreOptimiser.ExtraFeatures
+
+SPLIT_GROUPS_MEAN, FACTORED_GRAD_DTYPE, DECOUPLE_LR, CAUTIOUS, GRAMS, ADOPT, ORTHOGRAD, FOCUS, SPEED = \
+    ExtraFeatures.SPLIT_GROUPS_MEAN, ExtraFeatures.FACTORED_GRAD_DTYPE, ExtraFeatures.DECOUPLE_LR, \
+    ExtraFeatures.CAUTIOUS, ExtraFeatures.GRAMS, ExtraFeatures.ADOPT, \
+    ExtraFeatures.ORTHOGRAD, ExtraFeatures.FOCUS, ExtraFeatures.SPEED
 
 class ProdigyPlusScheduleFree(CoreOptimiser):
     r"""
@@ -60,10 +66,6 @@ class ProdigyPlusScheduleFree(CoreOptimiser):
             Decoupled weight decay. Use the weight_decay_by_lr setting to determine if decay should be multiplied by the
             adaptive learning rate.
             (default: 0).
-        weight_decay_by_lr (boolean):
-            If True, weight_decay is multiplied by the adaptive learning rate (as per the PyTorch implementation of AdamW).
-            If False, weight_decay will have a much stronger effect.
-            (default: True).
         use_bias_correction (boolean):
             Use the RAdam variant of schedule-free (https://github.com/facebookresearch/schedule_free/blob/main/schedulefree/radam_schedulefree.py).
             This combines bias correction with automatic warmup. Please note this will significantly dampen Prodigy's adaptive stepsize
@@ -81,35 +83,14 @@ class ProdigyPlusScheduleFree(CoreOptimiser):
             Freeze Prodigy stepsize adjustments after a certain optimiser step and releases all state memory required
             by Prodigy.
             (default: 0)
-        use_speed (boolean):
-            Highly experimental. Simplified Prodigy with rElativE D. This decouples Prodigy from the magnitude of the weights and uses 
-            a more straightforward heuristic for adapting the stepsize. It can provide better LR adaptation when training multiple networks,
-            and consumes less memory, as the denominator is computed from the previous step's numerator rather than the L1 norm 
-            of the exponential average of gradients.
-            (default: False)
         split_groups (boolean):
             Calculate d for each parameter group individually. For example, if training a text encoder beside a Unet. Note this can have a 
             significant impact on training dynamics. Set to False for original Prodigy behaviour, where d is calculated as a single value
             across all parameter groups.
             (default: True)
-        split_groups_mean (boolean):
-            When split_groups is True, the dynamic learning rate for each group is calculated as: 
-                'harmonic mean of d across all groups * per-group LR'
-            instead of:
-                'per-group d * per-group LR'.
-            This provides similar behaviour to the original Prodigy, with the benefit that each group can use its own group LR
-            with a more stable d. This can be good if one or more networks struggle to increase their LR when trained together.
-            If split_groups is False, this value has no effect.
-            (default: False)
         factored (boolean):
             Use factored approximation of the second moment, similar to Adafactor. Reduces memory usage. Disable
             if training results in NaNs or the learning rate fails to grow.
-            (default: True)
-        factored_fp32 (boolean):
-            Force the use of float32 for the factored second moment. Because the factorisation is an approximation, it can
-            be beneficial to use high precision to avoid stability issues. However, if you're training in lower precision 
-            for short durations, setting this to False will slightly reduce memory usage. 
-            Ignored if factored is False.
             (default: True)
         fused_back_pass (boolean):
             Stops the optimiser from running the normal step method. Set to True if using fused backward pass. Really only
@@ -119,74 +100,87 @@ class ProdigyPlusScheduleFree(CoreOptimiser):
             Scales parameter updates by their root-mean-square (RMS), in essence identical to Adafactor's update scaling. 
             Set to False if the adaptive learning rate never improves.
             (default: True)
-        use_cautious (boolean):
-            Experimental. Perform "cautious" updates, as proposed in https://arxiv.org/pdf/2411.16085. Modifies
-            the update to isolate and boost values that align with the current gradient. Note that we do not have
-            access to a first moment, so this deviates from the paper (we apply the mask directly to the update).
-            May have a limited effect.
-            (default: False)
-        use_grams (boolean):
-            Experimental. Perform "grams" updates, as proposed in https://arxiv.org/abs/2412.17107. Modifies 
-            the update using sign operations that align with the current gradient. Note that we do not have
-            access to a first moment, so this deviates from the paper (we apply the sign directly to the update).
-            May have a limited effect.
-            (default: False)            
-        use_adopt (boolean):
-            Experimental. Performs a modified step where the second moment is updated after the parameter update,
-            so as not to include the current gradient in the denominator. This is a partial implementation of ADOPT 
-            (https://arxiv.org/abs/2411.02853), as we don't have a first moment to use for the update.
-            (default: False)
-        use_orthograd (boolean):
-            Experimental. Updates weights using the component of the gradient that is orthogonal to the current 
-            weight direction, as described in "Grokking at the Edge of Numerical Stability" (https://arxiv.org/pdf/2501.04697).
-            Can help prevent overfitting and improve generalisation.
-            (default: False)
-        use_focus (boolean):
-            Experimental. Modifies the update step to better handle noise at large step sizes. From 
-            "FOCUS: First-Order Concentrated Update Scheme" (https://arxiv.org/abs/2501.12243). This method is
-            incompatible with factorisation and Adam-atan2.
-            (default: False)
         stochastic_rounding (boolean):
             Use stochastic rounding for bfloat16 weights (https://github.com/pytorch/pytorch/issues/120376). Brings
             bfloat16 training performance close to that of float32.
             (default: True)
+        features (enum or str):
+            Enable various experimental and uncommon features using flags, either as enum values or strings. Features can be 
+            specified alone (features=SPEED or features='SPEED'), or combined (features=SPEED|CAUTIOUS or features='SPEED,CAUTIOUS' 
+            or features='SPEED|CAUTIOUS').
+            (default: None)
+
+            SPLIT_GROUPS_MEAN:
+                When split_groups is True, the dynamic learning rate for each group is calculated as: 
+                    'harmonic mean of d across all groups * per-group LR'
+                instead of:
+                    'per-group d * per-group LR'.
+                This provides similar behaviour to the original Prodigy, with the benefit that each group can use its own group LR
+                with a more stable d. This can be good if one or more networks struggle to increase their LR when trained together.
+                If split_groups is False, this value has no effect.
+            FACTORED_GRAD_DTYPE:
+                Use the dtype of the gradient for the factored second moment. Because factorisation is an approximation, its dtype
+                is forced to float32 by default to avoid stability issues. However, if you're training in low precision for short durations, 
+                enabling this can slightly reduce memory usage. Ignored if factored is False.
+            DECOUPLE_LR:
+                By default, weight decay is multiplied by the adaptive learning rate (as per the PyTorch implementation of AdamW).
+                Enabling this feature will decouple decay from the LR. Its effect will be stronger and less sensitive to training dynamics.
+            SPEED:
+                Highly experimental. Simplified Prodigy with rElativE D. This decouples Prodigy from the magnitude of the weights and uses 
+                a more straightforward heuristic for adapting the stepsize. It can provide better LR adaptation when training multiple networks,
+                and consumes less memory, as the denominator is computed from the previous step's numerator rather than the L1 norm 
+                of the exponential average of gradients.
+            CAUTIOUS:
+                Experimental. Perform "cautious" updates, as proposed in https://arxiv.org/pdf/2411.16085. Modifies
+                the update to isolate and boost values that align with the current gradient. Note that we do not have
+                access to a first moment, so this deviates from the paper (we apply the mask directly to the update).
+                May have a limited effect.
+            GRAMS:
+                Experimental. Perform "grams" updates, as proposed in https://arxiv.org/abs/2412.17107. Modifies 
+                the update using sign operations that align with the current gradient. Note that we do not have
+                access to a first moment, so this deviates from the paper (we apply the sign directly to the update).
+                May have a limited effect.
+            ADOPT:
+                Experimental. Performs a modified step where the second moment is updated after the parameter update,
+                so as not to include the current gradient in the denominator. This is a partial implementation of ADOPT 
+                (https://arxiv.org/abs/2411.02853), as we don't have a first moment to use for the update.
+            ORTHOGRAD:
+                Experimental. Updates weights using the component of the gradient that is orthogonal to the current 
+                weight direction, as described in "Grokking at the Edge of Numerical Stability" (https://arxiv.org/pdf/2501.04697).
+                Can help prevent overfitting and improve generalisation.
+            FOCUS:
+                Experimental. Modifies the update step to better handle noise at large step sizes. From 
+                "FOCUS: First-Order Concentrated Update Scheme" (https://arxiv.org/abs/2501.12243). This method is
+                incompatible with factorisation and Adam-atan2.
+
     """
     def __init__(self, params, lr=1.0,
                  betas=(0.9, 0.99), beta3=None,
-                 use_schedulefree=True,
                  weight_decay=0.0,
-                 weight_decay_by_lr=True,
-                 use_bias_correction=False,
                  d0=1e-6, d_coef=1.0,
                  prodigy_steps=0,
-                 use_speed=False,
                  eps=1e-8,
                  split_groups=True,
-                 split_groups_mean=False,
                  factored=True,
-                 factored_fp32=True,
                  fused_back_pass=False,
+                 use_bias_correction=False,
                  use_stableadamw=True,
-                 use_cautious=False,
-                 use_grams=False,
-                 use_adopt=False,
-                 use_orthograd=False,
-                 use_focus=False,
-                 stochastic_rounding=True):
+                 use_schedulefree=True,
+                 stochastic_rounding=True,
+                 features=None):
 
         self.use_schedulefree = use_schedulefree
 
         super().__init__(params=params, lr=lr, betas=betas, beta3=beta3,
-                         weight_decay=weight_decay, weight_decay_by_lr=weight_decay_by_lr,
+                         weight_decay=weight_decay,
                          use_bias_correction=use_bias_correction,
-                         d0=d0, d_coef=d_coef, prodigy_steps=prodigy_steps, use_speed=use_speed,
+                         d0=d0, d_coef=d_coef, prodigy_steps=prodigy_steps,
                          eps=eps, split_groups=split_groups,
-                         split_groups_mean=split_groups_mean, factored=factored, factored_fp32=factored_fp32,
+                         factored=factored,
                          fused_back_pass=fused_back_pass, 
                          use_stableadamw=use_stableadamw,
-                         use_cautious=use_cautious, use_grams=use_grams, 
-                         use_adopt=use_adopt, use_orthograd=use_orthograd, use_focus=use_focus, 
-                         stochastic_rounding=stochastic_rounding)
+                         stochastic_rounding=stochastic_rounding,
+                         features=features)
 
     def is_schedulefree(self):
         if not hasattr(self, "use_schedulefree"):
@@ -246,7 +240,7 @@ class ProdigyPlusScheduleFree(CoreOptimiser):
 
         xy_step = 1 - beta1 * (1 - ckp1)
 
-        cautious, grams = group['use_cautious'], group['use_grams']
+        cautious, grams = self.use(group, CAUTIOUS), self.use(group, GRAMS)
 
         if cautious or grams:
             u = (y - z).mul_(ckp1).add_(update, alpha=dlr * xy_step)
@@ -284,7 +278,7 @@ class ProdigyPlusScheduleFree(CoreOptimiser):
     @torch.no_grad()
     def step_param_prodigy(self, p, group):
         k = group['k']
-        use_adopt = group['use_adopt']
+        use_adopt = self.use(group, ADOPT)
         use_bias_correction = group['use_bias_correction']
         stochastic = group['stochastic_rounding']
         beta1, beta2 = self.get_betas(group)
@@ -313,12 +307,12 @@ class ProdigyPlusScheduleFree(CoreOptimiser):
 
             exp_avg = self.update_first_moment(state, group, grad, beta1)
 
-            if group['use_cautious']:
+            if self.use(group, CAUTIOUS):
                 mask = grad.mul(exp_avg).sign_().clamp_min_(0)
                 mask.div_(mask.mean().clamp(min=1e-3))
                 grad.mul_(exp_avg)
                 del mask
-            elif group['use_grams']:
+            elif self.use(group, GRAMS):
                 mask = exp_avg.abs()
                 grad.sign_().mul_(mask)
                 del mask
@@ -332,7 +326,7 @@ class ProdigyPlusScheduleFree(CoreOptimiser):
             if group['use_stableadamw']:
                 dlr *= 1 / self.get_rms(update, 1.0)
 
-            if group['use_orthograd']:
+            if self.use(group, ORTHOGRAD):
                 update = self.orthograd_(y, update)
 
             self.update_prodigy(state, group, p.grad, p)
@@ -353,7 +347,7 @@ class ProdigyPlusScheduleFree(CoreOptimiser):
             raise Exception("Not in train mode!")
 
         k = group['k']
-        use_adopt = group['use_adopt']
+        use_adopt = self.use(group, ADOPT)
         use_bias_correction = group['use_bias_correction']
         stochastic = group['stochastic_rounding']
         _, beta2 = self.get_betas(group)
@@ -388,7 +382,7 @@ class ProdigyPlusScheduleFree(CoreOptimiser):
             if group['use_stableadamw']:
                 dlr *= 1 / self.get_rms(update, 1.0)
 
-            if group['use_orthograd']:
+            if self.use(group, ORTHOGRAD):
                 update = self.orthograd_(y, update)
 
             self.update_prodigy(state, group, p.grad, z_state)

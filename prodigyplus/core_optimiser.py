@@ -1,8 +1,21 @@
 import math
 import torch
 from statistics import harmonic_mean
+from enum import Flag, auto
 
 class CoreOptimiser(torch.optim.Optimizer):
+    class ExtraFeatures(Flag):
+        NONE = 0
+        SPLIT_GROUPS_MEAN = auto()
+        FACTORED_GRAD_DTYPE = auto()
+        DECOUPLE_LR = auto()
+        CAUTIOUS = auto()
+        GRAMS = auto()
+        ADOPT = auto()
+        ORTHOGRAD = auto()
+        FOCUS = auto()
+        SPEED = auto()
+
     def __init__(self, params, **kwargs):
         if not 0.0 < kwargs['d0']:
             raise ValueError("Invalid d0 value: {}".format(kwargs['d0']))
@@ -19,27 +32,56 @@ class CoreOptimiser(torch.optim.Optimizer):
 
         self.try_hook_kohya_fbp()
 
+        features = kwargs['features']
+
+        if features is None:
+            features = CoreOptimiser.ExtraFeatures.NONE
+        elif isinstance(features, str):
+            separators = [",", "|"]
+            for sep in separators:
+                if sep in features:
+                    tokens = [t.strip() for t in features.split(sep)]
+                    break
+                else:
+                    tokens = [features.strip()]
+
+            features = CoreOptimiser.ExtraFeatures.NONE
+            unknown_features = []
+            for t in tokens:
+                try:
+                    features |= CoreOptimiser.ExtraFeatures[t.upper()]
+                except KeyError:
+                    unknown_features.append(t)
+            if unknown_features:
+                valid = ', '.join(f.name for f in CoreOptimiser.ExtraFeatures)
+                raise ValueError(f"[{self.__class__.__name__}] Unknown feature(s): {', '.join(unknown_features)}. Valid features are: {valid}")
+
+        def is_on(flag):
+            return bool(features & flag)
+
         if kwargs['eps'] is None:
             print(f"[{self.__class__.__name__}] 'eps' is None, Adam-atan2 enabled.")
             if kwargs['use_stableadamw']:
                 print(f"[{self.__class__.__name__}] 'use_stableadamw' has been disabled (mutually exclusive with Adam-atan2).")
                 kwargs['use_stableadamw'] = False
 
-        if kwargs['use_cautious'] and kwargs['use_grams']:
-            print(f"[{self.__class__.__name__}] 'use_grams' has been disabled (mutually exclusive with 'use_cautious').")
-            kwargs['use_grams'] = False
+        if is_on(CoreOptimiser.ExtraFeatures.CAUTIOUS) and is_on(CoreOptimiser.ExtraFeatures.GRAMS):
+            print(f"[{self.__class__.__name__}] 'GRAMS' has been disabled (mutually exclusive with 'CAUTIOUS').")
+            features &= ~CoreOptimiser.ExtraFeatures.GRAMS
 
-        if kwargs['use_focus']:
+        if is_on(CoreOptimiser.ExtraFeatures.FOCUS):
             if kwargs['factored']:
-                print(f"[{self.__class__.__name__}] 'factored' has been disabled (incompatible with 'use_focus').")
+                print(f"[{self.__class__.__name__}] 'factored' has been disabled (incompatible with 'FOCUS').")
                 kwargs['factored'] = False
             if kwargs['eps'] is None:
-                print(f"[{self.__class__.__name__}] Adam-atan2 ('eps=None') has been disabled (incompatible with 'use_focus').")
+                print(f"[{self.__class__.__name__}] Adam-atan2 ('eps=None') has been disabled (incompatible with 'FOCUS').")
                 # We skip the Adam-atan2 branch entirely when FOCUS is enabled.
 
         split_groups = kwargs.pop('split_groups')
-        split_groups_mean = kwargs.pop('split_groups_mean')
+        split_groups_mean = is_on(CoreOptimiser.ExtraFeatures.SPLIT_GROUPS_MEAN)
         fused_back_pass = kwargs.pop('fused_back_pass')
+
+        kwargs['features'] = features
 
         defaults = dict(kwargs)
         
@@ -70,6 +112,10 @@ class CoreOptimiser(torch.optim.Optimizer):
             p = group['params'][0]
             group['running_d_numerator'] = torch.tensor(0.0, dtype=torch.float32, device=p.device)
             group['running_d_denom'] = torch.tensor(0.0, dtype=torch.float32, device=p.device)
+
+    def use(self, group, flag):
+        features = group.get('features', CoreOptimiser.ExtraFeatures.NONE)
+        return bool(features & flag)
 
     @torch.no_grad()
     def eval(self):
@@ -206,7 +252,7 @@ class CoreOptimiser(torch.optim.Optimizer):
             dtype = torch.bfloat16 if grad.dtype == torch.float32 else grad.dtype
             sliced_data = self.get_sliced_tensor(p)
 
-            if group.get('use_focus', False):
+            if self.use(group, CoreOptimiser.ExtraFeatures.FOCUS):
                 state['exp_avg_sq'] = torch.zeros_like(grad, memory_format=torch.preserve_format).detach()
             else:
                 # NOTE: We don't initialise z/exp_avg here -- subclass needs to do that.
@@ -223,7 +269,7 @@ class CoreOptimiser(torch.optim.Optimizer):
                     col_shape = list(grad.shape)
                     col_shape[dc] = 1
 
-                    factored_dtype = torch.float32 if group['factored_fp32'] else grad.dtype
+                    factored_dtype = grad.dtype if self.use(group, CoreOptimiser.ExtraFeatures.FACTORED_GRAD_DTYPE) else torch.float32
                     state["exp_avg_sq_row"] = torch.zeros(row_shape, dtype=factored_dtype, device=p.device).detach()
                     state["exp_avg_sq_col"] = torch.zeros(col_shape, dtype=factored_dtype, device=p.device).detach()
                     state["exp_avg_sq_metadata"] = (dr, dc)
@@ -236,7 +282,7 @@ class CoreOptimiser(torch.optim.Optimizer):
             else:
                 state['p0'] = torch.tensor(0.0, dtype=dtype, device=p.device)
 
-            if not group['use_speed']:
+            if not self.use(group, CoreOptimiser.ExtraFeatures.SPEED):
                 state['s'] = torch.zeros_like(sliced_data, memory_format=torch.preserve_format, dtype=dtype).detach()
 
         return state, needs_init
@@ -255,7 +301,7 @@ class CoreOptimiser(torch.optim.Optimizer):
 
     def get_weight_decay(self, group, lr):
         decay = group['weight_decay']
-        if group['weight_decay_by_lr']:
+        if not self.use(group, CoreOptimiser.ExtraFeatures.DECOUPLE_LR):
             decay *= lr
         return decay
     
@@ -322,7 +368,7 @@ class CoreOptimiser(torch.optim.Optimizer):
         d, d_coef = group['d'], group['d_coef']
         d_numerator, d_denom = group['d_numerator'], group['d_denom']
 
-        if group['use_speed']:
+        if self.use(group, CoreOptimiser.ExtraFeatures.SPEED):
             prev_d_numerator, max_d_numerator = group['prev_d_numerator'], group['max_d_numerator']
 
             if k >= 6 and d_numerator >= max_d_numerator and d_numerator > 0 and prev_d_numerator > 0:
@@ -337,7 +383,7 @@ class CoreOptimiser(torch.optim.Optimizer):
         group['d'] = d
 
     def on_start_step(self):
-        if self.parameters_to_process is None or self.parameters_to_process == 0:
+        if not self.parameters_to_process:
             # Optimiser hasn't run yet (or is starting a new step), so initialise.
             self.parameters_to_process = sum(len(group['params']) for group in self.param_groups)
 
@@ -395,7 +441,7 @@ class CoreOptimiser(torch.optim.Optimizer):
             x0_minus = state['p0'] - sliced_data
             x0_dot = torch.dot(sliced_grad, x0_minus)
 
-            if group['use_speed']:
+            if self.use(group, CoreOptimiser.ExtraFeatures.SPEED):
                 d_update = group['d0'] ** 0.75 # No effect on training; keeps scale at same magnitude as regular Prodigy
                 x0_dot /= x0_minus.norm().sqrt().clamp_min(1e-8)
             else:
@@ -417,7 +463,7 @@ class CoreOptimiser(torch.optim.Optimizer):
     def update_(self, num, denom, state, group, w):
         d = group['d']
 
-        if group.get('use_focus', False):
+        if self.use(group, CoreOptimiser.ExtraFeatures.FOCUS):
             # FOCUS: First Order Concentrated Updating Scheme: https://arxiv.org/pdf/2501.12243
             gamma = 0.2
 
@@ -444,7 +490,7 @@ class CoreOptimiser(torch.optim.Optimizer):
         return update
 
     def get_denom(self, state, group):
-        if group.get('use_focus', False):
+        if self.use(group, CoreOptimiser.ExtraFeatures.FOCUS):
             denom = state['exp_avg_sq'].clone()
         elif 'exp_avg_sq_metadata' in state:
             row_var, col_var = state["exp_avg_sq_row"], state["exp_avg_sq_col"]
@@ -472,7 +518,7 @@ class CoreOptimiser(torch.optim.Optimizer):
             denom = self.get_denom(state, group)
 
         # Adam EMA updates
-        if group.get('use_focus', False):
+        if self.use(group, CoreOptimiser.ExtraFeatures.FOCUS):
             state['exp_avg_sq'].mul_(beta2).add_(w, alpha=(1 - beta2) * d_k)
         elif 'exp_avg_sq_metadata' in state:
             row_var, col_var = state["exp_avg_sq_row"], state["exp_avg_sq_col"]
