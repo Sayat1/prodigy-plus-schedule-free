@@ -90,16 +90,16 @@ class CoreOptimiser(torch.optim.Optimizer):
         self.shared_d = None
         self.fused_back_pass = fused_back_pass
 
-        self.precalculated_d = []
-        self.precalculated_dk =[]
-        df = convert_tb_data("/content/events.out.tfevents.1745869403.ebb5d541f72a.3988.0")
-        self.precalculated_d.append(self.lr_from_tb(df,"lr/d*lr/textencoder 1"))
-        self.precalculated_d.append(self.lr_from_tb(df,"lr/d*lr/textencoder 2"))
-        self.precalculated_d.append(self.lr_from_tb(df,"lr/d*lr/unet"))
+        self.precalculated_d = [None for i in range(len(self.param_groups))]
+        self.precalculated_dk = [None for i in range(len(self.param_groups))]
+        # df = convert_tb_data("/content/events.out.tfevents.1745869403.ebb5d541f72a.3988.0")
+        # self.precalculated_d[0] = self.lr_from_tb(df,"lr/d*lr/textencoder 1")
+        # self.precalculated_d[1] = self.lr_from_tb(df,"lr/d*lr/textencoder 2")
+        # self.precalculated_d[2] = self.lr_from_tb(df,"lr/d*lr/unet")
 
-        self.precalculated_dk.append(self.lr_from_tb(df,"d_k/textencoder 1"))
-        self.precalculated_dk.append(self.lr_from_tb(df,"d_k/textencoder 2"))
-        self.precalculated_dk.append(self.lr_from_tb(df,"d_k/unet"))
+        # self.precalculated_dk[0] = self.lr_from_tb(df,"d_k/textencoder 1")
+        # self.precalculated_dk[1] = self.lr_from_tb(df,"d_k/textencoder 2")
+        # self.precalculated_dk[2] = self.lr_from_tb(df,"d_k/unet")
         # def warmup(step: int,warmup_step:int):
         #     if step < warmup_step:
         #         return float(step) / float(warmup_step)
@@ -111,14 +111,10 @@ class CoreOptimiser(torch.optim.Optimizer):
         #         return 0.1
         #     else:
         #         return 1
-            
-        # self.precalculated_d.append(lambda step: warmup(step,150) * 9e-4)
-        # self.precalculated_d.append(lambda step: warmup(step,150) * 1e-4)
-        # self.precalculated_d.append(lambda step: lr_switch(step,750)* 3e-4)
-
-        # self.precalculated_d.append(lambda step: 9e-4)
-        # self.precalculated_d.append(lambda step: 1e-4)
-        # self.precalculated_d.append(None)
+        
+        #self.precalculated_dk[0] = lambda step : 0.7 if step%100<10 and step>=100 else None
+        #self.precalculated_dk[1] = lambda step : 0.7 if step%100<10 and step>=100 else None
+        #self.precalculated_dk[2] = lambda step : 0.7 if step%100<10 and step>=100 else None
         print(f"precalculated_d {len(self.precalculated_d)}")
         print(f"precalculated_d_k {len(self.precalculated_dk)}")
 
@@ -518,9 +514,10 @@ class CoreOptimiser(torch.optim.Optimizer):
 
     def update_second_moment(self, state, group, grad, beta2, w, group_index=0, return_denom=True, denom_before_update=False):
         exp_avg_sq = state['exp_avg_sq']
+        d_k = None
         if self.precalculated_dk[group_index] != None:
             d_k = self.precalculated_dk[group_index](group['k'])
-        else:
+        if d_k == None:
             d_k = (group['d_prev'] / group['d']) ** 2
         group['d_k'] = d_k
         denom = None
