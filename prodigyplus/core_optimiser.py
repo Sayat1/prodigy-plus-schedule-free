@@ -112,9 +112,9 @@ class CoreOptimiser(torch.optim.Optimizer):
         #     else:
         #         return 1
         
-        #self.precalculated_dk[0] = lambda step : 0.7 if step%100<10 and step>=100 else None
-        #self.precalculated_dk[1] = lambda step : 0.7 if step%100<10 and step>=100 else None
-        #self.precalculated_dk[2] = lambda step : 0.7 if step%100<10 and step>=100 else None
+        #self.precalculated_dk[0] = lambda step : 0.7 if step%100<10 and step>=100 and step<1400 else None
+        #self.precalculated_dk[1] = lambda step : 0.7 if step%100<10 and step>=100 and step<1400 else None
+        #self.precalculated_dk[2] = lambda step : 0.7 if step%100<10 and step>=100 and step<1400 else None
         print(f"precalculated_d {len(self.precalculated_d)}")
         print(f"precalculated_d_k {len(self.precalculated_dk)}")
 
