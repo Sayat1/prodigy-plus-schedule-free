@@ -89,7 +89,8 @@ class ProdigyPlusScheduleFree(CoreOptimiser):
             SPEED (use_speed=True).
             (default: False).
         use_stableadamw (boolean):
-            Scales parameter updates by their root-mean-square (RMS), in essence identical to Adafactor's update scaling. 
+            Scales parameter updates by their root-mean-square (RMS), in essence identical to Adafactor's update scaling. For Schedule-Free, only
+            updates to z are scaled, while y is left unscaled, providing long-term stability without compromising Prodigy's LR adjustments.
             Set to False if the adaptive learning rate never improves.
             (default: True)
         use_schedulefree (boolean):
@@ -240,6 +241,7 @@ class ProdigyPlusScheduleFree(CoreOptimiser):
         ckp1 = weight / weight_sum if weight_sum else 0
 
         xy_step = 1 - beta1 * (1 - ckp1)
+        rms_scale = 1 / self.get_rms(update, 1.0) if group['use_stableadamw'] else 1
 
         cautious, grams = self.use(group, CAUTIOUS), self.use(group, GRAMS)
 
@@ -250,7 +252,7 @@ class ProdigyPlusScheduleFree(CoreOptimiser):
                 z.sub_(y, alpha=decay)
                 y.sub_(y, alpha=decay * xy_step)
 
-            z.sub_(update, alpha=dlr)
+            z.sub_(update, alpha=dlr * rms_scale)
 
             if cautious:
                 # "Cautious Optimizer (C-Optim): Improving Training with One Line of Code": https://github.com/kyleliang919/c-optim
@@ -271,7 +273,7 @@ class ProdigyPlusScheduleFree(CoreOptimiser):
                 z.sub_(y, alpha=decay)
                 y.sub_(y, alpha=decay * xy_step)
 
-            z.sub_(update, alpha=dlr)
+            z.sub_(update, alpha=dlr * rms_scale)
             y.sub_(update, alpha=dlr * xy_step)
 
         group['running_weight_sum'] = weight_sum
@@ -324,9 +326,6 @@ class ProdigyPlusScheduleFree(CoreOptimiser):
             del denom
 
         if update is not None:
-            if group['use_stableadamw']:
-                dlr *= 1 / self.get_rms(update, 1.0)
-
             if self.use(group, ORTHOGRAD):
                 update = self.orthograd_(y, update)
 
@@ -335,6 +334,9 @@ class ProdigyPlusScheduleFree(CoreOptimiser):
             decay = self.get_weight_decay(group, dlr)
             if decay != 0:
                 y.mul_(1 - decay)
+
+            if group['use_stableadamw']:
+                dlr /= self.get_rms(update, 1.0)
 
             y.sub_(update, alpha=dlr)
 
@@ -380,9 +382,6 @@ class ProdigyPlusScheduleFree(CoreOptimiser):
             del denom
 
         if update is not None:
-            if group['use_stableadamw']:
-                dlr *= 1 / self.get_rms(update, 1.0)
-
             if self.use(group, ORTHOGRAD):
                 update = self.orthograd_(y, update)
 
