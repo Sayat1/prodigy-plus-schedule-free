@@ -14,7 +14,6 @@ class CoreOptimiser(torch.optim.Optimizer):
         ADOPT = auto()
         ORTHOGRAD = auto()
         FOCUS = auto()
-        SPEED = auto()
 
     def __init__(self, params, **kwargs):
         if not 0.0 < kwargs['d0']:
@@ -57,7 +56,6 @@ class CoreOptimiser(torch.optim.Optimizer):
             'use_adopt': (CoreOptimiser.ExtraFeatures.ADOPT, False),
             'use_orthograd': (CoreOptimiser.ExtraFeatures.ORTHOGRAD, False),
             'use_focus': (CoreOptimiser.ExtraFeatures.FOCUS, False),
-            'use_speed': (CoreOptimiser.ExtraFeatures.SPEED, False)
         }
 
         deprecated_args = []
@@ -300,7 +298,7 @@ class CoreOptimiser(torch.optim.Optimizer):
             else:
                 state['p0'] = torch.tensor(0.0, dtype=dtype, device=p.device)
 
-            if not self.use(group, CoreOptimiser.ExtraFeatures.SPEED):
+            if not group['use_speed']:
                 state['s'] = torch.zeros_like(sliced_data, memory_format=torch.preserve_format, dtype=dtype).detach()
 
         return state, needs_init
@@ -386,7 +384,7 @@ class CoreOptimiser(torch.optim.Optimizer):
         d, d_coef = group['d'], group['d_coef']
         d_numerator, d_denom = group['d_numerator'], group['d_denom']
 
-        if self.use(group, CoreOptimiser.ExtraFeatures.SPEED):
+        if group['use_speed']:
             prev_d_numerator, max_d_numerator = group['prev_d_numerator'], group['max_d_numerator']
 
             if k >= 6 and d_numerator >= max_d_numerator and d_numerator > 0 and prev_d_numerator > 0:
@@ -459,7 +457,7 @@ class CoreOptimiser(torch.optim.Optimizer):
             x0_minus = state['p0'] - sliced_data
             x0_dot = torch.dot(sliced_grad, x0_minus)
 
-            if self.use(group, CoreOptimiser.ExtraFeatures.SPEED):
+            if group['use_speed']:
                 d_update = group['d0'] ** 0.75 # No effect on training; keeps scale at same magnitude as regular Prodigy
                 x0_dot /= x0_minus.norm().sqrt().clamp_min(1e-8)
             else:

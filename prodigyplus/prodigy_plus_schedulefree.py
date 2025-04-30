@@ -2,10 +2,10 @@ import torch
 from .core_optimiser import CoreOptimiser
 ExtraFeatures = CoreOptimiser.ExtraFeatures
 
-SPLIT_GROUPS_MEAN, FACTORED_GRAD_DTYPE, DECOUPLE_LR, CAUTIOUS, GRAMS, ADOPT, ORTHOGRAD, FOCUS, SPEED = \
+SPLIT_GROUPS_MEAN, FACTORED_GRAD_DTYPE, DECOUPLE_LR, CAUTIOUS, GRAMS, ADOPT, ORTHOGRAD, FOCUS = \
     ExtraFeatures.SPLIT_GROUPS_MEAN, ExtraFeatures.FACTORED_GRAD_DTYPE, ExtraFeatures.DECOUPLE_LR, \
     ExtraFeatures.CAUTIOUS, ExtraFeatures.GRAMS, ExtraFeatures.ADOPT, \
-    ExtraFeatures.ORTHOGRAD, ExtraFeatures.FOCUS, ExtraFeatures.SPEED
+    ExtraFeatures.ORTHOGRAD, ExtraFeatures.FOCUS
 
 class ProdigyPlusScheduleFree(CoreOptimiser):
     r"""
@@ -97,6 +97,12 @@ class ProdigyPlusScheduleFree(CoreOptimiser):
             Use the Schedule-Free version of the optimiser. If set to False, the optimiser will use a modified version of the
             reference Prodigy implementation and may require the use of an external LR schedule (cosine is recommended).
             (default: True).
+        use_speed (boolean):
+            Highly experimental. Simplified Prodigy with rElativE D. This decouples Prodigy from the magnitude of the weights and uses 
+            a more straightforward heuristic for adapting the stepsize. It can provide better LR adaptation when training multiple networks,
+            and consumes less memory, as the denominator is computed from the previous step's numerator rather than the L1 norm 
+            of the exponential average of gradients.
+            (default: False)
         stochastic_rounding (boolean):
             Use stochastic rounding for bfloat16 weights (https://github.com/pytorch/pytorch/issues/120376). Brings
             bfloat16 training performance closer to that of float32.
@@ -125,11 +131,6 @@ class ProdigyPlusScheduleFree(CoreOptimiser):
             DECOUPLE_LR:
                 By default, weight decay is multiplied by the adaptive learning rate (as per the PyTorch implementation of AdamW).
                 Enabling this feature will stop decay being multiplied by the LR. Its effect will be stronger and less sensitive to training dynamics.
-            SPEED:
-                Highly experimental. Simplified Prodigy with rElativE D. This decouples Prodigy from the magnitude of the weights and uses 
-                a more straightforward heuristic for adapting the stepsize. It can provide better LR adaptation when training multiple networks,
-                and consumes less memory, as the denominator is computed from the previous step's numerator rather than the L1 norm 
-                of the exponential average of gradients.
             CAUTIOUS:
                 Experimental. Perform "cautious" updates, as proposed in https://arxiv.org/pdf/2411.16085. Modifies
                 the update to isolate and boost values that align with the current gradient. Note that we do not have
@@ -165,6 +166,7 @@ class ProdigyPlusScheduleFree(CoreOptimiser):
                  use_bias_correction=False,
                  use_stableadamw=True,
                  use_schedulefree=True,
+                 use_speed=False,
                  stochastic_rounding=True,
                  fused_back_pass=False,
                  features=None,
@@ -180,6 +182,7 @@ class ProdigyPlusScheduleFree(CoreOptimiser):
                          factored=factored,
                          fused_back_pass=fused_back_pass, 
                          use_stableadamw=use_stableadamw,
+                         use_speed=use_speed,
                          stochastic_rounding=stochastic_rounding,
                          features=features,
                          **kwargs)
