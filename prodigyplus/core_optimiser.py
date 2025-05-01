@@ -102,7 +102,7 @@ class CoreOptimiser(torch.optim.Optimizer):
         defaults = dict(kwargs)
         
         defaults['d'] = defaults['d_prev'] = defaults['d0']
-        defaults['weight_sum'] = defaults['d_denom'] = defaults['d_numerator'] = 0
+        defaults['d_denom'] = defaults['d_numerator'] = 0
         defaults['train_mode'] = True
         defaults['k'] = 1
 
@@ -417,7 +417,6 @@ class CoreOptimiser(torch.optim.Optimizer):
 
                 for group in self.param_groups:
                     self.calculate_d(group)
-                    group['weight_sum'] = group.get('running_weight_sum', 0)
                     group['k'] += 1
 
                 self.shared_d = self.get_d_mean()
@@ -435,7 +434,6 @@ class CoreOptimiser(torch.optim.Optimizer):
                     group['d'] = first_group['d']
                     group['d_numerator'] = first_group['d_numerator']
                     group['d_denom'] = first_group['d_denom']
-                    group['weight_sum'] = group.get('running_weight_sum', 0)
                     group['k'] += 1
 
     def get_dlr(self, group):

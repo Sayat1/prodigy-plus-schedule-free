@@ -239,8 +239,8 @@ class ProdigyPlusScheduleFree(CoreOptimiser):
         beta1, _ = self.get_betas(group)
         decay = self.get_weight_decay(group, dlr)
 
-        weight = dlr ** 0.5
-        weight_sum = group['weight_sum'] + weight
+        weight = dlr ** 2
+        weight_sum = state['weight_sum'] = state.get('weight_sum', 0) + weight
         ckp1 = weight / weight_sum if weight_sum else 0
 
         xy_step = 1 - beta1 * (1 - ckp1)
@@ -279,8 +279,6 @@ class ProdigyPlusScheduleFree(CoreOptimiser):
             z.sub_(update, alpha=dlr * rms_scale)
             y.sub_(update, alpha=dlr * xy_step)
 
-        group['running_weight_sum'] = weight_sum
-    
     @torch.no_grad()
     def step_param_prodigy(self, p, group):
         k = group['k']
