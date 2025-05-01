@@ -83,15 +83,14 @@ class ProdigyPlusScheduleFree(CoreOptimiser):
             if training results in NaNs or the learning rate fails to grow.
             (default: True)
         use_bias_correction (boolean):
-            Use the RAdam variant of schedule-free (https://github.com/facebookresearch/schedule_free/blob/main/schedulefree/radam_schedulefree.py).
+            Use the RAdam variant of Schedule-Free (https://github.com/facebookresearch/schedule_free/blob/main/schedulefree/radam_schedulefree.py).
             This combines bias correction with automatic warmup. Please note this will significantly dampen Prodigy's adaptive stepsize
             calculations -- it can take up to 10 times longer to start adjusting the learning rate. This can be mitigated somewhat by enabling
             SPEED (use_speed=True).
             (default: False).
         use_stableadamw (boolean):
-            Scales parameter updates by their root-mean-square (RMS), in essence identical to Adafactor's update scaling. For Schedule-Free, only
-            updates to z are scaled, while y is left unscaled, providing long-term stability without compromising Prodigy's LR adjustments.
-            Set to False if the adaptive learning rate never improves.
+            Scales parameter updates by their root-mean-square (RMS), in essence identical to Adafactor's update scaling.
+            Set to False if the adaptive learning rate never improves or is over-estimated.
             (default: True)
         use_schedulefree (boolean):
             Use the Schedule-Free version of the optimiser. If set to False, the optimiser will use a modified version of the
@@ -112,8 +111,8 @@ class ProdigyPlusScheduleFree(CoreOptimiser):
             needed for scripts and UIs that call the regular step method even when using fused backward pass (OneTrainer).
             (default: False)
         features (enum or str):
-            Enable various experimental and uncommon features via enum or string flags. Supports single (features=SPEED or features='SPEED') 
-            or combined values (features=SPEED|CAUTIOUS|ADOPT or features='SPEED|CAUTIOUS|ADOPT' or features='SPEED,CAUTIOUS,ADOPT').
+            Enable various experimental and uncommon features via enum or string flags. Supports single (features=ADOPT or features='ADOPT') 
+            or combined values (features=CAUTIOUS|ADOPT or features='CAUTIOUS|ADOPT' or features='CAUTIOUS,ADOPT').
             (default: None)
 
             SPLIT_GROUPS_MEAN:
@@ -231,7 +230,7 @@ class ProdigyPlusScheduleFree(CoreOptimiser):
                 state['z'] = p.detach().clone(memory_format=torch.preserve_format)
             else:
                 state['exp_avg'] = torch.zeros_like(p.grad, memory_format=torch.preserve_format).detach()
-        
+
         return state
 
     @torch.no_grad()
@@ -239,12 +238,15 @@ class ProdigyPlusScheduleFree(CoreOptimiser):
         beta1, _ = self.get_betas(group)
         decay = self.get_weight_decay(group, dlr)
 
+        # Don't apply scaling to weight decay.
+        if group['use_stableadamw']:
+            dlr /= self.compute_adaptive_rms(state, update)
+
         weight = dlr ** 2
         weight_sum = state['weight_sum'] = state.get('weight_sum', 0) + weight
         ckp1 = weight / weight_sum if weight_sum else 0
 
         xy_step = 1 - beta1 * (1 - ckp1)
-        rms_scale = 1 / self.get_rms(update, 1.0) if group['use_stableadamw'] else 1
 
         cautious, grams = self.use(group, CAUTIOUS), self.use(group, GRAMS)
 
@@ -255,7 +257,7 @@ class ProdigyPlusScheduleFree(CoreOptimiser):
                 z.sub_(y, alpha=decay)
                 y.sub_(y, alpha=decay * xy_step)
 
-            z.sub_(update, alpha=dlr * rms_scale)
+            z.sub_(update, alpha=dlr)
 
             if cautious:
                 # "Cautious Optimizer (C-Optim): Improving Training with One Line of Code": https://github.com/kyleliang919/c-optim
@@ -276,7 +278,7 @@ class ProdigyPlusScheduleFree(CoreOptimiser):
                 z.sub_(y, alpha=decay)
                 y.sub_(y, alpha=decay * xy_step)
 
-            z.sub_(update, alpha=dlr * rms_scale)
+            z.sub_(update, alpha=dlr)
             y.sub_(update, alpha=dlr * xy_step)
 
     @torch.no_grad()

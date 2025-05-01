@@ -387,7 +387,7 @@ class CoreOptimiser(torch.optim.Optimizer):
         if group['use_speed']:
             prev_d_numerator, max_d_numerator = group['prev_d_numerator'], group['max_d_numerator']
 
-            if k >= 6 and d_numerator >= max_d_numerator and d_numerator > 0 and prev_d_numerator > 0:
+            if k >= 2 and d_numerator >= max_d_numerator and d_numerator > 0 and prev_d_numerator > 0:
                 d_power = 2 * (d_coef ** 0.5)
                 d_hat = min(2 ** 0.5, (d_numerator / prev_d_numerator) ** d_power)
                 d = max(d, d * d_hat)
@@ -553,6 +553,18 @@ class CoreOptimiser(torch.optim.Optimizer):
             denom = self.get_denom(state, group)
 
         return denom
+
+    def compute_adaptive_rms(self, state, update):
+        # If we force every update to RMS=1, Schedule-Free + Prodigy tends to over-estimate the LR. 
+        # Letting RMS reach ~2 on early steps keeps the safety net, but gives z a clearer directional signal.
+        rms = self.get_rms(update, 1)
+
+        # Beta and cap are hand-tuned. Ideally, these would be more data-driven.
+        beta, max_rms = 0.9, 2
+        exp_clip_threshold = (state.get('exp_clip_threshold', 1) * beta) + min(rms, max_rms) * (1 - beta)
+        state['exp_clip_threshold'] = exp_clip_threshold
+
+        return max(rms / exp_clip_threshold, 1)
 
     def get_rms(self, tensor, eps=1e-8):
         return tensor.norm(2).div(tensor.numel() ** 0.5).clamp_min(eps)
