@@ -340,8 +340,9 @@ class CoreOptimiser(torch.optim.Optimizer):
     def update_d_stats_and_reset(self, group):
         k = group['k']
         prodigy_steps = group['prodigy_steps']
+        start_prodigy_steps = group['start_prodigy_steps']
         
-        if prodigy_steps > 0 and k >= prodigy_steps:
+        if (prodigy_steps > 0 and k >= prodigy_steps) or (start_prodigy_steps > 0 and k < start_prodigy_steps):
             return
 
         d, d0 = group['d'], group['d0']
@@ -374,8 +375,9 @@ class CoreOptimiser(torch.optim.Optimizer):
     def calculate_d(self, group):
         k = group['k']
         prodigy_steps = group['prodigy_steps']
+        start_prodigy_steps = group['start_prodigy_steps']
         
-        if prodigy_steps > 0 and k >= prodigy_steps:
+        if (prodigy_steps > 0 and k >= prodigy_steps) or (start_prodigy_steps > 0 and k < start_prodigy_steps):
             return
 
         d, d_coef = group['d'], group['d_coef']
@@ -441,8 +443,9 @@ class CoreOptimiser(torch.optim.Optimizer):
     def update_prodigy(self, state, group, grad, data):
         k = group['k']
         prodigy_steps = group['prodigy_steps']
+        start_prodigy_steps = group['start_prodigy_steps']  
         
-        if prodigy_steps <= 0 or k < prodigy_steps:
+        if (prodigy_steps <= 0 or k < prodigy_steps) and (start_prodigy_steps <= 0 or k >= start_prodigy_steps):
             beta3 = self.get_beta3(group)
 
             sliced_grad = self.get_sliced_tensor(grad)
@@ -463,7 +466,7 @@ class CoreOptimiser(torch.optim.Optimizer):
             running_d_numerator.add_(x0_dot, alpha=d_update)
 
             del x0_minus
-        else:
+        elif start_prodigy_steps <= 0 or k >= start_prodigy_steps:
             # Free the memory used by Prodigy, as we no longer need it.
             if 's' in state:
                 s = state.pop('s')
