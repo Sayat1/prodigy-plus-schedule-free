@@ -552,20 +552,11 @@ class CoreOptimiser(torch.optim.Optimizer):
 
         return denom
 
-    def compute_adaptive_rms(self, state, update):
-        # If we force every update to RMS=1, Schedule-Free + Prodigy tends to over-estimate the LR. 
-        # Letting RMS reach ~2 on early steps keeps the safety net, but gives z a clearer directional signal.
-        rms = self.get_rms(update, 1)
-
-        # Beta and cap are hand-tuned. Ideally, these would be more data-driven.
-        beta, max_rms = 0.9, 2
-        exp_clip_threshold = (state.get('exp_clip_threshold', 1) * beta) + min(rms, max_rms) * (1 - beta)
-        state['exp_clip_threshold'] = exp_clip_threshold
-
-        return max(rms / exp_clip_threshold, 1)
-
     def get_rms(self, tensor, eps=1e-8):
         return tensor.norm(2).div(tensor.numel() ** 0.5).clamp_min(eps)
+
+    def rms_clip_(self, tensor, clip=3):
+        return tensor.mul_(1 / self.get_rms(tensor, 1.0).sqrt().clamp_max(clip))
 
     def try_hook_kohya_fbp(self):
         self.kohya_original_patch_adafactor_fused = None

@@ -238,10 +238,6 @@ class ProdigyPlusScheduleFree(CoreOptimiser):
         beta1, _ = self.get_betas(group)
         decay = self.get_weight_decay(group, dlr)
 
-        # Don't apply scaling to weight decay.
-        if group['use_stableadamw']:
-            dlr /= self.compute_adaptive_rms(state, update)
-
         weight = dlr ** 2
         weight_sum = state['weight_sum'] = state.get('weight_sum', 0) + weight
         ckp1 = weight / weight_sum if weight_sum else 0
@@ -339,7 +335,7 @@ class ProdigyPlusScheduleFree(CoreOptimiser):
                 y.mul_(1 - decay)
 
             if group['use_stableadamw']:
-                dlr /= self.get_rms(update, 1.0)
+                update = self.rms_clip_(update)
 
             y.sub_(update, alpha=dlr)
 
@@ -387,6 +383,9 @@ class ProdigyPlusScheduleFree(CoreOptimiser):
         if update is not None:
             if self.use(group, ORTHOGRAD):
                 update = self.orthograd_(y, update)
+
+            if group['use_stableadamw']:
+                update = self.rms_clip_(update)
 
             self.update_prodigy(state, group, p.grad, z_state)
             self.update_params(y, z, update, state, group, dlr)
