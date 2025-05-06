@@ -168,7 +168,9 @@ class ProdigyPlusScheduleFree(CoreOptimiser):
                  use_adopt=False,
                  use_orthograd=False,
                  use_focus=False,
-                 stochastic_rounding=True):
+                 stochastic_rounding=True,
+                 fixed_d=None,
+                 fixed_d_warmup=0):
 
         super().__init__(params=params, lr=lr, betas=betas, beta3=beta3,
                          weight_decay=weight_decay, weight_decay_by_lr=weight_decay_by_lr,
@@ -179,7 +181,7 @@ class ProdigyPlusScheduleFree(CoreOptimiser):
                          fused_back_pass=fused_back_pass, use_stableadamw=use_stableadamw,
                          use_muon_pp=use_muon_pp, use_cautious=use_cautious, use_grams=use_grams, 
                          use_adopt=use_adopt, use_orthograd=use_orthograd, use_focus=use_focus, 
-                         stochastic_rounding=stochastic_rounding)
+                         stochastic_rounding=stochastic_rounding,fixed_d=fixed_d,fixed_d_warmup=fixed_d_warmup)
 
     @torch.no_grad()
     def eval(self):

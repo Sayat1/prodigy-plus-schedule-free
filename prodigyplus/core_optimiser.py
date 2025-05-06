@@ -2,6 +2,7 @@ import math
 import torch
 from statistics import harmonic_mean
 import pandas as pd
+from collections.abc import Iterable
 
 def convert_tb_data(filepath):
     from tensorflow.python.summary.summary_iterator import summary_iterator
@@ -139,13 +140,15 @@ class CoreOptimiser(torch.optim.Optimizer):
                 return 1
 
         if fixed_d is not None:
-            if type(fixed_d) != tuple:
+            groups_fixed_d = fixed_d
+            groups_warmup = fixed_d_warmup
+            if not isinstance(fixed_d, Iterable):
                 groups_fixed_d = [fixed_d for i in self.param_groups]
-            if type(fixed_d_warmup) != tuple:
+            if not isinstance(fixed_d_warmup, Iterable):
                 groups_warmup = [fixed_d_warmup for i in self.param_groups]
 
-            for group,fixed_d,warmup_step in zip(self.param_groups,groups_fixed_d,groups_warmup,strict=True):
-                group['d_func'] = lambda step : warmup(step,warmup_step) * fixed_d
+            for group,group_d,group_warmup in zip(self.param_groups,groups_fixed_d,groups_warmup,strict=True):
+                group['d_func'] = lambda step,group_d=group_d,group_warmup=group_warmup : warmup(step,group_warmup) * group_d
 
         # Use tensors to keep everything on device during parameter loop.
         for group in (self.param_groups if self.split_groups else self.param_groups[:1]):
