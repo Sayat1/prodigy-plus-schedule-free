@@ -243,7 +243,8 @@ class ProdigyPlusScheduleFree(CoreOptimiser):
         weight_sum = group['running_weight_sum'] = group.get('weight_sum', 0) + weight
         ckp1 = weight / weight_sum if weight_sum else 0
 
-        xy_step = group['effective_lr'] = 1 - beta1 * (1 - ckp1)
+        xy_step = 1 - beta1 * (1 - ckp1)
+        group['effective_lr'] = group['lr'] * xy_step
 
         cautious, grams = self.use(group, CAUTIOUS), self.use(group, GRAMS)
 
