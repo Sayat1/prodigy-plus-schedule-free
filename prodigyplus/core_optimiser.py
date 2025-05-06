@@ -475,8 +475,6 @@ class CoreOptimiser(torch.optim.Optimizer):
                 del p0
 
     def update_(self, num, denom, state, group, w):
-        d = group['d']
-
         if self.use(group, CoreOptimiser.ExtraFeatures.FOCUS):
             # FOCUS: First Order Concentrated Updating Scheme: https://arxiv.org/pdf/2501.12243
             gamma = 0.2
@@ -487,7 +485,7 @@ class CoreOptimiser(torch.optim.Optimizer):
             denom = denom.sub_(w).sign_().mul_(-gamma)
             update = num.sign_().add_(denom)
         else:
-            eps = group['eps']
+            d, eps = group['d'], group['eps']
 
             if eps is None:
                 # Adam-atan2. Use atan2 rather than epsilon and division 
