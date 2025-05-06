@@ -385,9 +385,8 @@ class CoreOptimiser(torch.optim.Optimizer):
         if group['use_speed']:
             prev_d_numerator, max_d_numerator = group['prev_d_numerator'], group['max_d_numerator']
 
-            if k >= 2 and d_numerator >= max_d_numerator and d_numerator > 0 and prev_d_numerator > 0:
-                beta = self.get_betas(group)[1] ** 2
-                d_power = (2 - (1 - beta ** k) ** 2) * (d_coef ** 0.5)
+            if d_numerator >= max_d_numerator and d_numerator > 0 and prev_d_numerator > 0:
+                d_power = (k ** -0.25) * (d_coef ** 0.25)
                 d_hat = min(2 ** 0.5, (d_numerator / prev_d_numerator) ** d_power)
                 d = max(d, d * d_hat)
         elif d_denom > 0:
@@ -446,20 +445,21 @@ class CoreOptimiser(torch.optim.Optimizer):
         
         if prodigy_steps <= 0 or k < prodigy_steps:
             beta3 = self.get_beta3(group)
+            d_update = (group['d'] ** 2) / (group['d0'] ** 0.5)
 
-            sliced_grad = self.get_sliced_tensor(grad)
-            sliced_data = self.get_sliced_tensor(data)
-
+            sliced_grad, sliced_data = self.get_sliced_tensor(grad), self.get_sliced_tensor(data)
             running_d_numerator, running_d_denom = self.get_running_values_for_group(group)
 
             x0_minus = state['p0'] - sliced_data
             x0_dot = torch.dot(sliced_grad, x0_minus)
 
             if group['use_speed']:
-                d_update = group['d0'] ** 0.5 # No effect on training; keeps scale at same magnitude as regular Prodigy
-                x0_dot /= x0_minus.abs().sum().sqrt().clamp_min(1e-8)
+                beta = 1 - (k ** -0.25)
+                x0_dot = state.get('exp_avg_x0_dot', x0_dot) * beta + x0_dot * (1 - beta)
+                state['exp_avg_x0_dot'] = x0_dot.item()
+
+                x0_dot /= x0_minus.norm().clamp_min(1e-8)
             else:
-                d_update = (group['d'] ** 2) / (group['d0'] ** 0.5)
                 running_d_denom.add_(state['s'].mul_(beta3).add_(sliced_grad, alpha=d_update).abs().sum())
 
             running_d_numerator.add_(x0_dot, alpha=d_update)

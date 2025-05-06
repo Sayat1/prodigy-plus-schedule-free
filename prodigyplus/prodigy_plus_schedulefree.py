@@ -97,10 +97,11 @@ class ProdigyPlusScheduleFree(CoreOptimiser):
             reference Prodigy implementation and may require the use of an external LR schedule (cosine is recommended).
             (default: True).
         use_speed (boolean):
-            Highly experimental. Simplified Prodigy with rElativE D. This decouples Prodigy from the magnitude of the weights and uses 
-            a more straightforward heuristic for adapting the stepsize. It can provide better LR adaptation when training multiple networks,
-            and consumes less memory, as the denominator is computed from the previous step's numerator rather than the L1 norm 
-            of the exponential average of gradients.
+            Highly experimental. Simplified Prodigy with rElativE D. Replaces Prodigy's numerator/denominator ratio with a 
+            momentum-based estimate of directional progress. Instead of accumulating L1 norms, it tracks an EMA of the 
+            inner product between the gradient and weight displacement, normalised by its norm. The learning rate increases 
+            only when this directional progress exceeds the previous step. SPEED uses less memory, is less sensitive to
+            gradient magnitude, and can be a better choice when training multiple networks.
             (default: False)
         stochastic_rounding (boolean):
             Use stochastic rounding for bfloat16 weights (https://github.com/pytorch/pytorch/issues/120376). Brings
