@@ -100,7 +100,8 @@ class CoreOptimiser(torch.optim.Optimizer):
         kwargs['features'] = features
 
         defaults = dict(kwargs)
-        
+
+        defaults['effective_lr'] = defaults['lr']      
         defaults['d'] = defaults['d_prev'] = defaults['d0']
         defaults['d_denom'] = defaults['d_numerator'] = 0
         defaults['train_mode'] = True
