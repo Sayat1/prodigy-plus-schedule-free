@@ -413,10 +413,7 @@ class CoreOptimiser(torch.optim.Optimizer):
                         print(f"[{self.__class__.__name__}] Prodigy stepsize adaptation disabled after {group['k']} steps for param_group {i}.")
 
                     self.update_d_stats_and_reset(group)
-
-                for group in self.param_groups:
                     self.calculate_d(group)
-                    group['k'] += 1
 
                 self.shared_d = self.get_d_mean()
             else:
@@ -433,7 +430,11 @@ class CoreOptimiser(torch.optim.Optimizer):
                     group['d'] = first_group['d']
                     group['d_numerator'] = first_group['d_numerator']
                     group['d_denom'] = first_group['d_denom']
-                    group['k'] += 1
+
+            # Update other group values unrelated to d.
+            for group in self.param_groups:
+                group['weight_sum'] = group.get('running_weight_sum', 0)
+                group['k'] += 1
 
     def get_dlr(self, group):
         dlr = (self.shared_d if self.split_groups and self.shared_d else group['d']) * group['lr']
