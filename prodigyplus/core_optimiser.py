@@ -29,55 +29,97 @@ def convert_tb_data(filepath):
 
 
 class CoreOptimiser(torch.optim.Optimizer):
-    def __init__(self, params, **kwargs):
-        if not 0.0 < kwargs['d0']:
-            raise ValueError("Invalid d0 value: {}".format(kwargs['d0']))
-        if not 0.0 < kwargs['lr']:
-            raise ValueError("Invalid learning rate: {}".format(kwargs['lr']))
-        if kwargs['eps'] is not None and not 0.0 < kwargs['eps']:
-            raise ValueError("Invalid epsilon value: {}".format(kwargs['eps']))
-        if not 0.0 <= kwargs['betas'][0] < 1.0:
-            raise ValueError("Invalid beta parameter at index 0: {}".format(kwargs['betas'][0]))
-        if kwargs['betas'][1] is not None and not 0.0 <= kwargs['betas'][1] < 1.0:
-            raise ValueError("Invalid beta parameter at index 1: {}".format(kwargs['betas'][1]))
-        if kwargs['beta3'] is not None and not 0.0 <= kwargs['beta3'] < 1.0:
-            raise ValueError("Invalid beta3 parameter: {}".format(kwargs['beta3']))
+    def __init__(self, params, lr=1.0,
+                 betas=(0.9, 0.99), beta3=None,
+                 weight_decay=0.0,
+                 weight_decay_by_lr=True,
+                 use_bias_correction=False,
+                 d0=1e-6, d_coef=1.0,
+                 prodigy_steps=0,
+                 use_speed=False,
+                 eps=1e-8,
+                 split_groups=True,
+                 split_groups_mean=True,
+                 factored=True,
+                 factored_fp32=True,
+                 fused_back_pass=False,
+                 use_stableadamw=True,
+                 use_muon_pp=False,
+                 use_cautious=False,
+                 use_grams=False,
+                 use_adopt=False,
+                 use_orthograd=False,
+                 use_focus=False,
+                 stochastic_rounding=True,
+                 fixed_d=None,
+                 fixed_d_warmup=0):
+
+        if not 0.0 < d0:
+            raise ValueError("Invalid d0 value: {}".format(d0))
+        if not 0.0 < lr:
+            raise ValueError("Invalid learning rate: {}".format(lr))
+        if eps is not None and not 0.0 < eps:
+            raise ValueError("Invalid epsilon value: {}".format(eps))
+        if not 0.0 <= betas[0] < 1.0:
+            raise ValueError("Invalid beta parameter at index 0: {}".format(betas[0]))
+        if not 0.0 <= betas[1] < 1.0:
+            raise ValueError("Invalid beta parameter at index 1: {}".format(betas[1]))
+        if beta3 is not None and not 0.0 <= beta3 < 1.0:
+            raise ValueError("Invalid beta3 parameter: {}".format(beta3))
 
         self.try_hook_kohya_fbp()
 
-        if kwargs['eps'] is None:
+        if beta3 is None:
+            beta3 = betas[1] ** 0.5
+
+        if eps is None:
             print(f"[{self.__class__.__name__}] 'eps' is None, Adam-atan2 enabled.")
-            if kwargs['use_stableadamw']:
+            if use_stableadamw:
                 print(f"[{self.__class__.__name__}] 'use_stableadamw' has been disabled (mutually exclusive with Adam-atan2).")
-                kwargs['use_stableadamw'] = False
+                use_stableadamw = False
 
-        if kwargs['use_cautious'] and kwargs['use_grams']:
+        if use_cautious and use_grams:
             print(f"[{self.__class__.__name__}] 'use_grams' has been disabled (mutually exclusive with 'use_cautious').")
-            kwargs['use_grams'] = False
+            use_grams = False
 
-        if kwargs['use_focus']:
-            if kwargs['factored']:
+        if use_focus:
+            if factored:
                 print(f"[{self.__class__.__name__}] 'factored' has been disabled (incompatible with 'use_focus').")
-                kwargs['factored'] = False
-            if kwargs['eps'] is None:
+                factored = False
+            if use_muon_pp:
+                print(f"[{self.__class__.__name__}] 'use_muon_pp' has been disabled (incompatible with 'use_focus').")
+                use_muon_pp = False
+            if eps is None:
                 print(f"[{self.__class__.__name__}] Adam-atan2 ('eps=None') has been disabled (incompatible with 'use_focus').")
                 # We skip the Adam-atan2 branch entirely when FOCUS is enabled.
 
-        split_groups = kwargs.pop('split_groups')
-        split_groups_mean = kwargs.pop('split_groups_mean')
-        fused_back_pass = kwargs.pop('fused_back_pass')
-
-        defaults = dict(kwargs)
-        
-        defaults['d'] = defaults['d_prev'] = defaults['d0']
-        defaults['weight_sum'] = defaults['d_denom'] = defaults['d_numerator'] = 0
-        defaults['train_mode'] = True
-        defaults['k'] = 1
-        defaults['d_k'] = 1
+        defaults = dict(lr=lr, betas=betas, beta3=beta3,
+                        eps=eps,
+                        weight_decay=weight_decay,
+                        weight_decay_by_lr=weight_decay_by_lr,
+                        d=d0, d_prev=d0, d0=d0, d_coef=d_coef,
+                        k=1, train_mode=True,
+                        weight_sum=0,
+                        prodigy_steps=prodigy_steps,
+                        use_speed=use_speed,
+                        use_bias_correction=use_bias_correction,
+                        d_numerator=0.0,
+                        d_denom=0,
+                        factored=factored,
+                        factored_fp32=factored_fp32,
+                        use_stableadamw=use_stableadamw,
+                        use_muon_pp=use_muon_pp,
+                        use_cautious=use_cautious,
+                        use_grams=use_grams,
+                        use_adopt=use_adopt,
+                        use_orthograd=use_orthograd,
+                        use_focus=use_focus,
+                        stochastic_rounding=stochastic_rounding,
+                        d_func=None)
 
         super().__init__(params, defaults)
 
-        self.d0 = defaults['d0']
+        self.d0 = d0
         if split_groups and len(self.param_groups) == 1:
             print(f"[{self.__class__.__name__}] Optimiser contains single param_group -- 'split_groups' has been disabled.")
             split_groups = False
@@ -90,33 +132,20 @@ class CoreOptimiser(torch.optim.Optimizer):
         self.shared_d = None
         self.fused_back_pass = fused_back_pass
 
-        self.precalculated_d = [None for i in range(len(self.param_groups))]
-        self.precalculated_dk = [None for i in range(len(self.param_groups))]
-        # df = convert_tb_data("/content/events.out.tfevents.1745869403.ebb5d541f72a.3988.0")
-        # self.precalculated_d[0] = self.lr_from_tb(df,"lr/d*lr/textencoder 1")
-        # self.precalculated_d[1] = self.lr_from_tb(df,"lr/d*lr/textencoder 2")
-        # self.precalculated_d[2] = self.lr_from_tb(df,"lr/d*lr/unet")
+        def warmup(step: int,warmup_step:int):
+            if step < warmup_step:
+                return float(step) / float(warmup_step)
+            else:
+                return 1
 
-        # self.precalculated_dk[0] = self.lr_from_tb(df,"d_k/textencoder 1")
-        # self.precalculated_dk[1] = self.lr_from_tb(df,"d_k/textencoder 2")
-        # self.precalculated_dk[2] = self.lr_from_tb(df,"d_k/unet")
-        # def warmup(step: int,warmup_step:int):
-        #     if step < warmup_step:
-        #         return float(step) / float(warmup_step)
-        #     else:
-        #         return 1
-        
-        # def lr_switch(step: int,warmup_step:int):
-        #     if step < warmup_step:
-        #         return 0.1
-        #     else:
-        #         return 1
-        
-        #self.precalculated_dk[0] = lambda step : 0.7 if step%100<10 and step>=100 and step<1400 else None
-        #self.precalculated_dk[1] = lambda step : 0.7 if step%100<10 and step>=100 and step<1400 else None
-        #self.precalculated_dk[2] = lambda step : 0.7 if step%100<10 and step>=100 and step<1400 else None
-        print(f"precalculated_d {len(self.precalculated_d)}")
-        print(f"precalculated_d_k {len(self.precalculated_dk)}")
+        if fixed_d is not None:
+            if type(fixed_d) != tuple:
+                groups_fixed_d = [fixed_d for i in self.param_groups]
+            if type(fixed_d_warmup) != tuple:
+                groups_warmup = [fixed_d_warmup for i in self.param_groups]
+
+            for group,fixed_d,warmup_step in zip(self.param_groups,groups_fixed_d,groups_warmup,strict=True):
+                group['d_func'] = lambda step : warmup(step,warmup_step) * fixed_d
 
         # Use tensors to keep everything on device during parameter loop.
         for group in (self.param_groups if self.split_groups else self.param_groups[:1]):
@@ -143,37 +172,22 @@ class CoreOptimiser(torch.optim.Optimizer):
     def supports_fused_back_pass(self):
         return True
 
-    def lr_from_tb(self, df:pd.DataFrame,column_name:str):
-        group_df = df[df['name'] == column_name]
-        init_lr = group_df['value'].iloc[0]
-        changed = group_df[group_df['value'] != group_df['value'].shift(1)]
-        def lr_lambda(current_step:int):
-            try:
-                return changed[changed['step'] <= current_step]['value'].iloc[-1]
-            except IndexError:
-                return init_lr
-        return lr_lambda
-
     @torch.no_grad()
     def get_sliced_tensor(self, tensor, slice_p=11):
         return tensor.ravel()[::slice_p]
-
-    @torch.no_grad()
-    def check_running_values_for_group(self, p, group):
-        if not self.split_groups:
-            group = self.param_groups[0]
-
-        if group['running_d_numerator'].device != p.device:
-            group['running_d_numerator'] = group['running_d_numerator'].to(p.device)
-        if group['running_d_denom'].device != p.device:
-            group['running_d_denom'] = group['running_d_denom'].to(p.device)
 
     @torch.no_grad()
     def get_running_values_for_group(self, group):
         if not self.split_groups:
             group = self.param_groups[0]
 
-        return group['running_d_numerator'], group['running_d_denom']
+        p = group['params'][0]
+        numerator, denom = group['running_d_numerator'], group['running_d_denom']
+        if numerator.device != p.device:
+            group['running_d_numerator'] = numerator = numerator.to(p.device)
+        if denom.device != p.device:
+            group['running_d_denom'] = denom = denom.to(p.device)
+        return numerator, denom
 
     @torch.no_grad()
     def get_d_mean(self):
@@ -181,17 +195,59 @@ class CoreOptimiser(torch.optim.Optimizer):
             return harmonic_mean(group['d'] for group in self.param_groups)
         return None
 
+    @torch.no_grad()
+    def get_d_max(self, group):
+        if self.split_groups:
+            return max(group['d'] for group in self.param_groups)
+        return group['d']
+
+    # From: https://github.com/KellerJordan/Muon/blob/master/muon.py
+    @torch.no_grad()
+    def newton_schulz_(self, G, steps=6, eps=1e-7):
+        # Inline reshaping step within the method itself.
+        G_shape = G.shape
+        G = G.view(G.size(0), -1)
+
+        a, b, c = (3.4445, -4.7750,  2.0315)
+        X = G.to(dtype=torch.bfloat16, copy=True)
+        if G.size(0) > G.size(1):
+            X = X.T
+
+        X /= X.norm().add(eps) # ensure top singular value <= 1
+        for _ in range(steps):
+            A = X @ X.T
+            B = b * A + c * A @ A
+            X = a * X + B @ X
+
+        if G.size(0) > G.size(1):
+            X = X.T
+
+        # Gradient scaling adaptation from: https://github.com/leloykun/adaptive-muon
+        X = torch.einsum('ij,ij->', G.type_as(X), X).clamp(-1.0, 1.0) * X
+        G.copy_(X)
+        del X
+
+        return G.view(G_shape)
+    
     # Implementation from: https://github.com/LucasPrietoAl/grokking-at-the-edge-of-numerical-stability/blob/main/orthograd.py
     def orthograd(self, p, grad):
-        if p.norm(2) <= 1e-30:
-            return grad.to(dtype=torch.float32, copy=True)
-
         G_shape = grad.shape
         w = p.view(-1)
         g = grad.view(-1)
 
         proj = torch.dot(w, g) / (torch.dot(w, w) + 1e-30)
         g_orth = g.to(dtype=torch.float32, copy=True).sub_(w, alpha=proj)
+        g_orth_scaled = g_orth.mul_(g.norm(2) / (g_orth.norm(2) + 1e-30))
+
+        return g_orth_scaled.view(G_shape)
+    
+    def orthograd_(self, p, grad):
+        G_shape = grad.shape
+        w = p.view(-1)
+        g = grad.view(-1)
+
+        proj = torch.dot(w, g) / (torch.dot(w, w) + 1e-30)
+        g_orth = g.sub_(w, alpha=proj)
         g_orth_scaled = g_orth.mul_(g.norm(2) / (g_orth.norm(2) + 1e-30))
 
         return g_orth_scaled.view(G_shape)
@@ -265,31 +321,37 @@ class CoreOptimiser(torch.optim.Optimizer):
             dtype = torch.bfloat16 if grad.dtype == torch.float32 else grad.dtype
             sliced_data = self.get_sliced_tensor(p)
 
-            if group['use_focus']:
+            if group.get('use_focus', False):
                 state['exp_avg_sq'] = torch.zeros_like(grad, memory_format=torch.preserve_format).detach()
+                state['muon'] = False
             else:
                 # NOTE: We don't initialise z/exp_avg here -- subclass needs to do that.
-                factored_dims = self.factored_dims(
-                    grad.shape,
-                    factored=group['factored'],
-                    min_dim_size_to_factor=32
-                )
+                state['muon'] = group['use_muon_pp'] and len(grad.shape) >= 2
 
-                if factored_dims is not None:
-                    # Store reduction variables so we don't have to recalculate each step.
-                    dc, dr = factored_dims
-                    row_shape = list(grad.shape)
-                    row_shape[dr] = 1
-                    col_shape = list(grad.shape)
-                    col_shape[dc] = 1
-                    reduce_dc = dc - 1 if dc > dr else dc
-
-                    factored_dtype = torch.float32 if group['factored_fp32'] else grad.dtype
-                    state["exp_avg_sq"] = [torch.zeros(row_shape, dtype=factored_dtype, device=p.device).detach(), 
-                                           torch.zeros(col_shape, dtype=factored_dtype, device=p.device).detach(), 
-                                           dr, dc, reduce_dc]
+                if state['muon']:
+                    state["rms_sq"] = None if group['use_speed'] else torch.tensor(0.0, dtype=dtype, device=p.device)
                 else:
-                    state['exp_avg_sq'] = torch.zeros_like(grad, memory_format=torch.preserve_format).detach()
+                    factored_dims = self.factored_dims(
+                        grad.shape,
+                        factored=group['factored'],
+                        min_dim_size_to_factor=32
+                    )
+
+                    if factored_dims is not None:
+                        # Store reduction variables so we don't have to recalculate each step.
+                        dc, dr = factored_dims
+                        row_shape = list(grad.shape)
+                        row_shape[dr] = 1
+                        col_shape = list(grad.shape)
+                        col_shape[dc] = 1
+                        reduce_dc = dc - 1 if dc > dr else dc
+
+                        factored_dtype = torch.float32 if group['factored_fp32'] else grad.dtype
+                        state["exp_avg_sq"] = [torch.zeros(row_shape, dtype=factored_dtype, device=p.device).detach(), 
+                                               torch.zeros(col_shape, dtype=factored_dtype, device=p.device).detach(), 
+                                               dr, dc, reduce_dc]
+                    else:
+                        state['exp_avg_sq'] = torch.zeros_like(grad, memory_format=torch.preserve_format).detach()
 
             # If the initial weights are zero, don't bother storing them.
             if p.any() > 0:
@@ -297,22 +359,9 @@ class CoreOptimiser(torch.optim.Optimizer):
             else:
                 state['p0'] = torch.tensor(0.0, dtype=dtype, device=p.device)
 
-            if not group['use_speed']:
-                state['s'] = torch.zeros_like(sliced_data, memory_format=torch.preserve_format, dtype=dtype).detach()
+            state['s'] = torch.zeros_like(sliced_data, memory_format=torch.preserve_format, dtype=dtype).detach()
 
         return state, needs_init
-
-    def get_betas(self, group):
-        beta1, beta2 = group['betas']
-        if beta2 is None:
-            beta2 = 1 - (1 / group['k'])
-        return (beta1, beta2)
-
-    def get_beta3(self, group):
-        beta3 = group['beta3']
-        if beta3 is None:
-            beta3 = self.get_betas(group)[1] ** 0.5
-        return beta3
 
     @torch.no_grad()
     def update_d_stats_and_reset(self, group):
@@ -323,69 +372,60 @@ class CoreOptimiser(torch.optim.Optimizer):
             return
 
         d, d0 = group['d'], group['d0']
-        beta3 = self.get_beta3(group)
+        beta3 = group['beta3']
 
         running_d_numerator, running_d_denom = self.get_running_values_for_group(group)
 
-        max_d_numerator = group.get('max_d_numerator', 0)
         d_numerator = group['d_numerator']
         d_numerator *= beta3
 
         d_numerator_item = running_d_numerator.item()
         d_denom_item = running_d_denom.item()
 
-        # Prevent the accumulation of negative values in the numerator in early training.
-        # We still allow negative updates once progress starts being made, as this is 
-        # important for regulating the adaptive stepsize.
-        if d > d0 or d_numerator_item > 0:
+        # Force Prodigy to be extremely confident before increasing the LR when gradient
+        # and weights drift.
+        if d_numerator_item < 0:
+            if d > d0:
+                # Prevent the accumulation of negative values in the numerator in early training.
+                # We still allow negative updates once progress starts being made, as this is 
+                # important for regulating the adaptive stepsize.
+                d_numerator = min(d_numerator, d_numerator_item)
+        else:
             d_numerator += d_numerator_item
 
-        group['prev_d_numerator'] = group['d_numerator']
-        group['max_d_numerator'] = max(d_numerator, max_d_numerator)
         group['d_numerator'] = d_numerator
         group['d_denom'] = d_denom_item
 
         running_d_numerator.zero_()
         running_d_denom.zero_()
 
-
     @torch.no_grad()
-    def calculate_d(self, group , group_index=0):
+    def calculate_d(self, group):
         k = group['k']
         prodigy_steps = group['prodigy_steps']
         
         if prodigy_steps > 0 and k >= prodigy_steps:
             return
 
-        if self.precalculated_d[group_index] != None:
-            d = self.precalculated_d[group_index](k)
+        if group['d_func'] != None:
+            d = group['d_func'](k)
         else:
-            d, d_coef = group['d'], group['d_coef']
-            d_numerator, d_denom = group['d_numerator'], group['d_denom']
+            d = group['d']
+            d_hat = math.atan2(group['d_coef'] * group['d_numerator'], group['d_denom'])
 
             if group['use_speed']:
-                prev_d_numerator, max_d_numerator = group['prev_d_numerator'], group['max_d_numerator']
-
-                if d_numerator >= max_d_numerator and prev_d_numerator > 0:
-                    d_hat = min(2 ** 0.5, (d_numerator / prev_d_numerator) ** 0.75)
-                    d = max(d, d * d_hat * d_coef)
-            elif d_denom > 0:
-                d_hat = (d_coef * d_numerator) / d_denom
+                d_hat = max(d, d_hat)
+                d = min(d_hat, d ** 0.975)
+            else:
                 d = max(d, d_hat)
 
         group['d_prev'] = group['d']
         group['d'] = d
 
-    def on_start_step(self, p, group):
+    def on_start_step(self):
         if self.parameters_to_process is None or self.parameters_to_process == 0:
             # Optimiser hasn't run yet (or is starting a new step), so initialise.
             self.parameters_to_process = sum(len(group['params']) for group in self.param_groups)
-            # Check running values are on-device.
-            if self.split_groups:
-                for other_group in self.param_groups:
-                    self.check_running_values_for_group(p, other_group)
-            else:
-                self.check_running_values_for_group(p, group)
 
     def on_end_step(self):
         self.parameters_to_process -= 1
@@ -399,8 +439,8 @@ class CoreOptimiser(torch.optim.Optimizer):
 
                     self.update_d_stats_and_reset(group)
 
-                for i, group in enumerate(self.param_groups):
-                    self.calculate_d(group,i)
+                for group in self.param_groups:
+                    self.calculate_d(group)
                     group['weight_sum'] = group.get('running_weight_sum', 0)
                     group['k'] += 1
 
@@ -425,14 +465,15 @@ class CoreOptimiser(torch.optim.Optimizer):
 
     def get_dlr(self, group):
         dlr = (self.shared_d if self.split_groups and self.shared_d else group['d']) * group['lr']
-        return dlr * group.get('rect', 1.0)
+        return dlr
 
     def update_prodigy(self, state, group, grad, data):
         k = group['k']
         prodigy_steps = group['prodigy_steps']
         
         if prodigy_steps <= 0 or k < prodigy_steps:
-            beta3 = self.get_beta3(group)
+            beta3 = group['beta3']
+            d_update = group['d'] ** 0.5
 
             sliced_grad = self.get_sliced_tensor(grad)
             sliced_data = self.get_sliced_tensor(data)
@@ -443,28 +484,21 @@ class CoreOptimiser(torch.optim.Optimizer):
             x0_dot = torch.dot(sliced_grad, x0_minus)
 
             if group['use_speed']:
-                d_update = group['d'] / (group['d0'] ** 0.5)
-                x0_dot /= x0_minus.abs().sum().clamp_min(1e-8)
-            else:
-                d_update = group['d'] ** 0.5
-                s = state['s']
-                s.mul_(beta3).add_(sliced_grad, alpha=d_update)
-                running_d_denom.add_(s.abs().sum())
+                d_update *= group['d0']
+                x0_dot, sliced_grad = x0_dot.sign(), sliced_grad.sign()
+
+            s = state['s']
+            s.mul_(beta3).add_(sliced_grad, alpha=d_update)
 
             running_d_numerator.add_(x0_dot, alpha=d_update)
-
+            running_d_denom.add_(s.abs().sum())
             del x0_minus
-        else:
-            # Free the memory used by Prodigy, as we no longer need it.
-            if 's' in state:
-                s = state.pop('s')
-                del s
-            if 'p0' in state:
-                p0 = state.pop('p0')
-                del p0
+        elif 's' in state: # Free the memory used by Prodigy, as we no longer need it.
+            del state['s']
+            del state['p0']
 
-    def update_(self, num, denom, state, group, w):
-        if group['use_focus']:
+    def update_(self, num, denom, group, w):
+        if group.get('use_focus', False):
             # FOCUS: First Order Concentrated Updating Scheme: https://arxiv.org/pdf/2501.12243
             gamma = 0.1
 
@@ -478,13 +512,12 @@ class CoreOptimiser(torch.optim.Optimizer):
 
             if eps is None:
                 # Approximate scaling for a regular Adam-style update.
-                b = state.get('exp_clip_threshold', self.get_max_clip_threshold(group))
+                b = self.get_clip_threshold(group)
 
                 # Adam-atan2. Use atan2 rather than epsilon and division 
                 # for parameter updates (https://arxiv.org/abs/2407.05872).
                 # Has the nice property of "clipping" the gradient as well.
                 update = num.atan2_(denom.mul_(b)).mul_(b)
-                self.compute_adaptive_rms(state, group, update)
             else:
                 update = num.div_(denom.add_(eps))
 
@@ -498,8 +531,10 @@ class CoreOptimiser(torch.optim.Optimizer):
             row_var, col_var, _, _, reduce_dc = exp_avg_sq
 
             row_col_mean = row_var.mean(dim=reduce_dc, keepdim=True).add_(1e-30)
-            denom = (row_var.div(row_col_mean) * col_var).sqrt_()
-        elif group['use_focus']:
+            row_factor = row_var.div(row_col_mean).sqrt_()
+            col_factor = col_var.sqrt()
+            denom = row_factor * col_factor
+        elif group.get('use_focus', False):
             denom = exp_avg_sq.clone()
         else:
             denom = exp_avg_sq.sqrt()
@@ -510,66 +545,52 @@ class CoreOptimiser(torch.optim.Optimizer):
         exp_avg = state['exp_avg']
         d_k = group['d_prev'] / group['d']
 
-        return exp_avg.mul_(beta1 * d_k).add_(grad, alpha=1 - beta1)
+        return exp_avg.mul_(beta1 * d_k).add_(grad, weight=1 - beta1)
 
-    def update_second_moment(self, state, group, grad, beta2, w, group_index=0, return_denom=True, denom_before_update=False):
+    def update_second_moment(self, state, group, grad, beta2, w, return_denom=True, denom_before_update=False):
         exp_avg_sq = state['exp_avg_sq']
-        d_k = None
-        if self.precalculated_dk[group_index] != None:
-            d_k = self.precalculated_dk[group_index](group['k'])
-        if d_k == None:
-            d_k = (group['d_prev'] / group['d']) ** 2
-        group['d_k'] = d_k
+        d_k = group['d_prev'] / group['d']
+
         denom = None
 
         if return_denom and denom_before_update:
             denom = self.get_denom(state, group)
 
         # Adam EMA updates
-        if group['use_focus']:
-            exp_avg_sq.mul_(beta2 * d_k).add_(w, alpha=1 - beta2)
+        if group.get('use_focus', False):
+            exp_avg_sq.mul_(beta2 * d_k * d_k).add_(w, alpha=1 - beta2)
         else:
             if isinstance(exp_avg_sq, list):
                 row_var, col_var, dr, dc, _ = exp_avg_sq
 
-                row_var.mul_(beta2 * d_k).add_(
+                row_var.mul_(beta2 * d_k * d_k).add_(
                     grad.norm(dim=dr, keepdim=True).square_().mul_(1 / grad.shape[dr]),
                     alpha=1 - beta2
                 )
-                col_var.mul_(beta2 * d_k).add_(
+                col_var.mul_(beta2 * d_k * d_k).add_(
                     grad.norm(dim=dc, keepdim=True).square_().mul_(1 / grad.shape[dc]),
                     alpha=1 - beta2
                 )
             else:
-                exp_avg_sq.mul_(beta2 * d_k).addcmul_(grad, grad, value=1 - beta2)
+                exp_avg_sq.mul_(beta2 * d_k * d_k).addcmul_(grad, grad, value=1 - beta2)
 
         if return_denom and denom is None:
             denom = self.get_denom(state, group)
 
         return denom
 
-    def get_max_clip_threshold(self, group):
-        _, beta2 = self.get_betas(group)
-        # Maximum RMS of first update.
-        return (1 - beta2) ** -0.5
-
-    def compute_adaptive_rms(self, state, group, update):
-        rms = self.get_rms(update, 1)
-
-        if not group['adaptive_stableadamw']:
-            return rms
-
-        max_clip_threshold = self.get_max_clip_threshold(group)
-        exp_clip_threshold = state.get('exp_clip_threshold', 1)
-        
-        beta = 1 - (1 / (group['k'] + 1))
-        exp_clip_threshold = (exp_clip_threshold * beta) + min(rms, max_clip_threshold) * (1 - beta)
-        state['exp_clip_threshold'] = exp_clip_threshold
-
-        return max(rms / exp_clip_threshold, 1)
-
     def get_rms(self, tensor, eps=1e-8):
         return tensor.norm(2).div(tensor.numel() ** 0.5).clamp_min(eps)
+
+    def rms_(self, tensor, eps):
+        return tensor.div_(self.get_rms(tensor, eps))
+
+    def get_clip_threshold(self, group):
+        # Prodigy works best with unscaled gradients during early steps.
+        if not group['use_speed'] and group['d'] <= group['d0']:
+            return 50
+
+        return 1
 
     def try_hook_kohya_fbp(self):
         self.kohya_original_patch_adafactor_fused = None
@@ -625,12 +646,12 @@ class CoreOptimiser(torch.optim.Optimizer):
         self.kohya_original_patch_adafactor_fused = None
 
     @torch.no_grad()
-    def step_param(self, p, group, i):
+    def step_param(self, p, group):
         raise Exception("Not implemented!")            
 
     @torch.no_grad()
     def step_parameter(self, p, group, i):
-        self.step_param(p, group, i)
+        self.step_param(p, group)
 
     @torch.no_grad()
     def step(self, closure=None):
@@ -651,8 +672,8 @@ class CoreOptimiser(torch.optim.Optimizer):
             with torch.enable_grad():
                 loss = closure()
 
-        for i, param_group in enumerate(self.param_groups):
+        for param_group in self.param_groups:
             for p in param_group["params"]:
-                self.step_param(p, param_group, i)
+                self.step_param(p, param_group)
 
         return loss
