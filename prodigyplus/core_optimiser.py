@@ -81,6 +81,11 @@ class CoreOptimiser(torch.optim.Optimizer):
                 print(f"[{self.__class__.__name__}] 'use_stableadamw' has been disabled (mutually exclusive with Adam-atan2).")
                 kwargs['use_stableadamw'] = False
 
+        # SPEED expects (mostly) unmodified weights during training to determine LR. If weight growth is 
+        # dampened too much, SPEED can massively overestimate the LR.
+        if kwargs['use_speed'] and kwargs['weight_decay'] > 0:
+            print(f"[{self.__class__.__name__}] WARNING: Weight decay with SPEED detected! Decay will be clamped to dlr * 0.01. If you encounter instability, lower or disable weight decay.")
+
         if is_on(CoreOptimiser.ExtraFeatures.CAUTIOUS) and is_on(CoreOptimiser.ExtraFeatures.GRAMS):
             print(f"[{self.__class__.__name__}] 'GRAMS' has been disabled (mutually exclusive with 'CAUTIOUS').")
             features &= ~CoreOptimiser.ExtraFeatures.GRAMS
@@ -317,8 +322,10 @@ class CoreOptimiser(torch.optim.Optimizer):
         decay = group['weight_decay']
         if not self.use(group, CoreOptimiser.ExtraFeatures.DECOUPLE_LR):
             decay *= lr
+        if group['use_speed']:
+            decay = min(lr * 0.01, decay)
         return decay
-    
+
     def get_bias_correction(self, dlr, beta2, k):
         beta2_t = beta2 ** k
         bias_correction2 = 1 - beta2_t
