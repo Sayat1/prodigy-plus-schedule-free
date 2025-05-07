@@ -53,7 +53,7 @@ class CoreOptimiser(torch.optim.Optimizer):
                  use_focus=False,
                  stochastic_rounding=True,
                  fixed_d=None,
-                 fixed_d_warmup=0):
+                 fixed_d_warmup=0,fixed_d_warmup_exp=1):
 
         if not 0.0 < d0:
             raise ValueError("Invalid d0 value: {}".format(d0))
@@ -133,9 +133,9 @@ class CoreOptimiser(torch.optim.Optimizer):
         self.shared_d = None
         self.fused_back_pass = fused_back_pass
 
-        def warmup(step: int,warmup_step:int):
+        def warmup(step: int,warmup_step:int,exp:int):
             if step < warmup_step:
-                return float(step) / float(warmup_step)
+                return (float(step) / float(warmup_step)) ** exp
             else:
                 return 1
 
@@ -144,13 +144,16 @@ class CoreOptimiser(torch.optim.Optimizer):
         if fixed_d is not None:
             groups_fixed_d = fixed_d
             groups_warmup = fixed_d_warmup
+            groups_warmup_exp = fixed_d_warmup_exp
             if not isinstance(fixed_d, Iterable):
                 groups_fixed_d = [fixed_d for i in self.param_groups]
             if not isinstance(fixed_d_warmup, Iterable):
                 groups_warmup = [fixed_d_warmup for i in self.param_groups]
+            if not isinstance(groups_warmup_exp, Iterable):
+                groups_warmup_exp = [fixed_d_warmup_exp for i in self.param_groups]
 
-            for group,group_d,group_warmup in zip(self.param_groups,groups_fixed_d,groups_warmup,strict=True):
-                group['d_func'] = lambda step,group_d=group_d,group_warmup=group_warmup : warmup(step,group_warmup) * group_d
+            for group,group_d,group_warmup,group_warmup_exp in zip(self.param_groups,groups_fixed_d,groups_warmup,groups_warmup_exp,strict=True):
+                group['d_func'] = lambda step,group_d=group_d,group_warmup=group_warmup,group_warmup_exp=group_warmup_exp : warmup(step,group_warmup,group_warmup_exp) * group_d
 
         # Use tensors to keep everything on device during parameter loop.
         for group in (self.param_groups if self.split_groups else self.param_groups[:1]):
