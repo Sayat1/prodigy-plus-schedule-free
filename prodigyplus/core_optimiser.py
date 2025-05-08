@@ -393,7 +393,7 @@ class CoreOptimiser(torch.optim.Optimizer):
             prev_d_numerator, max_d_numerator = group['prev_d_numerator'], group['max_d_numerator']
 
             if d_numerator >= max_d_numerator and d_numerator > 0 and prev_d_numerator > 0:
-                d_power = (k ** -0.25) * (d_coef ** 0.25)
+                d_power = 0.5 * (group['d_coef'] ** 0.25)
                 d_hat = min(2 ** 0.5, (d_numerator / prev_d_numerator) ** d_power)
                 d = max(d, d * d_hat)
         elif d_denom > 0:
@@ -449,10 +449,11 @@ class CoreOptimiser(torch.optim.Optimizer):
     def update_prodigy(self, state, group, grad, data):
         k = group['k']
         prodigy_steps = group['prodigy_steps']
-        
+
         if prodigy_steps <= 0 or k < prodigy_steps:
+            d, d0 = group['d'], group['d0']
             beta3 = self.get_beta3(group)
-            d_update = (group['d'] ** 2) / (group['d0'] ** 0.5)
+            d_update = (d ** 2) / (d0 ** 0.5)
 
             sliced_grad, sliced_data = self.get_sliced_tensor(grad), self.get_sliced_tensor(data)
             running_d_numerator, running_d_denom = self.get_running_values_for_group(group)
@@ -461,12 +462,26 @@ class CoreOptimiser(torch.optim.Optimizer):
             x0_dot = torch.dot(sliced_grad, x0_minus)
 
             if group['use_speed']:
-                beta = 1 - (k ** -0.25)
+                beta = 1 - (1 / k)
                 x0_dot = state.get('exp_avg_x0_dot', x0_dot) * beta + x0_dot * (1 - beta)
                 state['exp_avg_x0_dot'] = x0_dot.item()
 
-                x0_dot /= x0_minus.norm().clamp_min(1e-8)
+                # Always normalise by largest displacement. This is mainly to keep the numerator stable
+                # when weight decay is applied.
+                x0_minus_l1_norm = x0_minus.abs().sum().clamp_min(state.get('max_x0_minus_l1_norm', 1e-8))
+                state['max_x0_minus_l1_norm'] = x0_minus_l1_norm.item()
+
+                # Penalise d as displacement increases. This helps prevent pathologic d growth.
+                x0_minus_l2_norm = x0_minus.norm().add(1) ** 2
+                d_update /= x0_minus_l2_norm
+
+                # d_denom is unused by SPEED, so use it instead for logging l2.
+                running_d_denom.add_(x0_minus_l2_norm)
+
+                # Normalise.
+                x0_dot /= x0_minus_l1_norm
             else:
+                x0_dot = torch.dot(sliced_grad, x0_minus)
                 running_d_denom.add_(state['s'].mul_(beta3).add_(sliced_grad, alpha=d_update).abs().sum())
 
             running_d_numerator.add_(x0_dot, alpha=d_update)

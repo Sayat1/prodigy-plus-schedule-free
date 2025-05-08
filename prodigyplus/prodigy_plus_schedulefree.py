@@ -98,10 +98,8 @@ class ProdigyPlusScheduleFree(CoreOptimiser):
             (default: True).
         use_speed (boolean):
             Highly experimental. Simplified Prodigy with rElativE D. Replaces Prodigy's numerator/denominator ratio with a 
-            momentum-based estimate of directional progress. Instead of accumulating L1 norms, it tracks an EMA of the 
-            inner product between the gradient and weight displacement, normalised by its norm. The learning rate increases 
-            only when this directional progress exceeds the previous step. SPEED uses less memory, is less sensitive to
-            gradient magnitude, and can be a better choice when training multiple networks.
+            momentum-based estimate of directional progress. SPEED uses less memory, is scale-insensitive, and can be 
+            a better choice when training multiple networks, however, it can be unstable when used with weight decay.
             (default: False)
         stochastic_rounding (boolean):
             Use stochastic rounding for bfloat16 weights (https://github.com/pytorch/pytorch/issues/120376). Brings
