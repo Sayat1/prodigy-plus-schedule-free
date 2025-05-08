@@ -451,9 +451,7 @@ class CoreOptimiser(torch.optim.Optimizer):
         prodigy_steps = group['prodigy_steps']
 
         if prodigy_steps <= 0 or k < prodigy_steps:
-            d, d0 = group['d'], group['d0']
-            beta3 = self.get_beta3(group)
-            d_update = (d ** 2) / (d0 ** 0.5)
+            d_update = (group['d'] ** 2) / (group['d0'] ** 0.5)
 
             sliced_grad, sliced_data = self.get_sliced_tensor(grad), self.get_sliced_tensor(data)
             running_d_numerator, running_d_denom = self.get_running_values_for_group(group)
@@ -462,7 +460,7 @@ class CoreOptimiser(torch.optim.Optimizer):
             x0_dot = torch.dot(sliced_grad, x0_minus)
 
             if group['use_speed']:
-                beta = 1 - (1 / k)
+                beta = 1 - (k ** -0.95)
                 x0_dot = state.get('exp_avg_x0_dot', x0_dot) * beta + x0_dot * (1 - beta)
                 state['exp_avg_x0_dot'] = x0_dot.item()
 
@@ -481,7 +479,7 @@ class CoreOptimiser(torch.optim.Optimizer):
                 # Normalise.
                 x0_dot /= x0_minus_l1_norm
             else:
-                x0_dot = torch.dot(sliced_grad, x0_minus)
+                beta3 = self.get_beta3(group)
                 running_d_denom.add_(state['s'].mul_(beta3).add_(sliced_grad, alpha=d_update).abs().sum())
 
             running_d_numerator.add_(x0_dot, alpha=d_update)
