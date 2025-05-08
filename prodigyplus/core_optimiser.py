@@ -460,7 +460,7 @@ class CoreOptimiser(torch.optim.Optimizer):
             x0_dot = torch.dot(sliced_grad, x0_minus)
 
             if group['use_speed']:
-                beta = 1 - (k ** -0.95)
+                beta = 1 - (k ** -0.9)
                 x0_dot = state.get('exp_avg_x0_dot', x0_dot) * beta + x0_dot * (1 - beta)
                 state['exp_avg_x0_dot'] = x0_dot.item()
 
