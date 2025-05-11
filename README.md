@@ -13,13 +13,13 @@ pip install prodigy-plus-schedule-free
 from prodigyplus.prodigy_plus_schedulefree import ProdigyPlusScheduleFree
 optimizer = ProdigyPlusScheduleFree(model.parameters(), lr=1.0, betas=(0.9, 0.99), beta3=None, 
                  					weight_decay=0.0, decouple_lr=False,
-									d0=1e-6, d_coef=1.0, prodigy_steps=0, eps=1e-8, 
-									split_groups=True, split_groups_mean=False,
+							d0=1e-6, d_coef=1.0, prodigy_steps=0, eps=1e-8, 
+							split_groups=True, split_groups_mean=False,
                  					factored=True, factored_fp32=True, use_bias_correction=False,
                  					use_stableadamw=True, use_schedulefree=True, use_speed=False,
                  					stochastic_rounding=True, fused_back_pass=False,
                  					use_cautious=False, use_grams=False, use_adopt=False,
-									use_orthograd=False, use_focus=False)
+							use_orthograd=False, use_focus=False)
 ```
 
 As with the reference implementation of Schedule-Free, a constant scheduler should be used, along with the appropriate
@@ -32,15 +32,13 @@ The default settings should "just work", but there are a few configurations you 
 By default, the optimiser uses StableAdamW to scale parameter updates, which reduces the need for external gradient scaling or clipping. However, this can also hamper Prodigy's ability to adapt the stepsize. While the optimiser includes internal logic to mostly mitigate this, you can set `use_stableadamw=False` and use external gradient clipping instead.
 
 ### Training multiple networks
-Unlike reference Prodigy, this optimiser will adjust the stepsize per parameter group, allowing one to train multiple networks at the same time. To use
-the original behaviour, set `split_groups=False`.
+Unlike reference Prodigy, this optimiser will adjust the stepsize per parameter group, allowing one to train multiple networks at the same time. To use the original behaviour, set `split_groups=False`.
 
 ### Turning off Prodigy
 Earlier versions of the optimiser recommended setting `prodigy_steps` equal to 5-25% of your total step count, but this should not be necessary with recent updates. That said, you can still use the setting to make sure the LR does not change after a certain step, and free any memory used by Prodigy for adapting the step size.
 
 ## Changes in v2.0.0
-* Schedule-Free can be disabled using `use_schedulefree=False`. This reverts the optimiser to straight Prodigy, while keeping per-group learning rates and the
-rest of the features of the optimiser (StableAdamW, factorisation, and so on).
+* Schedule-Free can be disabled using `use_schedulefree=False`. This reverts the optimiser to straight Prodigy, while keeping per-group learning rates and the rest of the features of the optimiser (StableAdamW, factorisation, and so on).
 * Changed `split_groups_mean` to `False` so full, per-group stepsize adaptation is active by default.
 * The Prodigy implementation adjusted to more closely match the original.
 * StableAdamW use a soft scaling formula based on the square root of the RMS. This should result in more accurate LR adjustments.
@@ -73,35 +71,24 @@ Leave `lr` set to 1 unless you encounter instability. Do not use with gradient c
 
 The optimiser uses low-rank approximations for the second moment, much like Adafactor. There should be little to no difference in training performance, but your mileage may vary. If you encounter problems, you can try disabling factorisation by setting `factored=False`. If you're training in bfloat16, and need to squeeze out every last drop of memory, you can also set `factored_fp32=False`, which will make the factored second moment use the same precision as the weights, rather than float32 (to maximise stability).
 
-The optimiser also supports [fused backward pass](https://pytorch.org/tutorials/intermediate/optimizer_step_in_backward_tutorial.html) to significantly lower
-gradient memory usage. The `fused_back_pass` argument must be set to `True` so the optimiser knows not to perform the regular step. Please note however that 
-your training scripts / UI of choice *must* support the feature for generic optimisers -- as of May 2025, Kohya hard-codes which optimisers have fused backward pass support, and so this optimiser's fused pass will not work out of the box with it.
+The optimiser also supports [fused backward pass](https://pytorch.org/tutorials/intermediate/optimizer_step_in_backward_tutorial.html) to significantly lower gradient memory usage. The `fused_back_pass` argument must be set to `True` so the optimiser knows not to perform the regular step. Please note however that your training scripts / UI of choice *must* support the feature for generic optimisers -- as of May 2025, Kohya hard-codes which optimisers have fused backward pass support, and so this optimiser's fused pass will not work out of the box with it.
 
 In some scenarios, it can be advantageous to freeze Prodigy's adaptive stepsize after a certain number of steps. This can be controlled via the `prodigy_steps` settings. [It's been suggested that all Prodigy needs to do is achieve "escape velocity"](https://arxiv.org/pdf/2409.20325) in terms of finding a good LR, which it usually achieves after ~25% of training, though this is very dependent on batch size and epochs.
 
-This setting can be particularly helpful when training diffusion models, which have very different gradient behaviour than what most optimisers are tuned for. 
-Prodigy in particular will increase the LR forever if it is not stopped or capped in some way (usually via a decaying LR scheduler). Even if you don't need
-to cap LR growth, the optimiser will free all Prodigy-specific state memory once `prodigy_steps` is exceeded, which may improve performance where memory
-usage is on the borderline.
+This setting can be particularly helpful when training diffusion models, which have very different gradient behaviour than what most optimisers are tuned for. Prodigy in particular will increase the LR forever if it is not stopped or capped in some way (usually via a decaying LR scheduler). Even if you don't need to cap LR growth, the optimiser will free all Prodigy-specific state memory once `prodigy_steps` is exceeded, which may improve performance where memory usage is on the borderline.
 
 ## Experimental features
-**Adam-atan2:** `eps=None`. Outlined in [Scaling Exponents Across Parameterizations and Optimizers](https://arxiv.org/abs/2407.05872), 
-you can use atan2 in place of the regular division plus epsilon found in most Adam-style optimisers. This makes updates scale-invariant, and removes the need 
-to tweak the epsilon. Disabled by default.
+**Adam-atan2:** `eps=None`. Outlined in [Scaling Exponents Across Parameterizations and Optimizers](https://arxiv.org/abs/2407.05872), you can use atan2 in place of the regular division plus epsilon found in most Adam-style optimisers. This makes updates scale-invariant, and removes the need to tweak the epsilon. Disabled by default.
 
-**C-Optim:** `use_cautious=True`. Outlined in [Cautious Optimizers: Improving Training with One Line of Code](https://arxiv.org/pdf/2411.16085). 
-Applies a simple modification to parameter updates that promotes values that are aligned with the current gradient. This should result in faster convergence. While not 1:1 compatible with schedule-free, [the implementation by nhamanasu](https://github.com/facebookresearch/schedule_free/pull/54) does work, though improvements may be limited.
+**C-Optim:** `use_cautious=True`. Outlined in [Cautious Optimizers: Improving Training with One Line of Code](https://arxiv.org/pdf/2411.16085). Applies a simple modification to parameter updates that promotes values that are aligned with the current gradient. This should result in faster convergence. While not 1:1 compatible with schedule-free, [the implementation by nhamanasu](https://github.com/facebookresearch/schedule_free/pull/54) does work, though improvements may be limited.
 
-**Grams:** `use_grams=True`. Described in [Grams: Gradient Descent with Adaptive Momentum Scaling](https://arxiv.org/abs/2412.17107). 
-In a similar vein to C-Optim, the parameter update is modified to separate the update direction from momentum. Thanks to [gesen2egee for the pull request](https://github.com/LoganBooker/prodigy-plus-schedule-free/pull/5).
+**Grams:** `use_grams=True`. Described in [Grams: Gradient Descent with Adaptive Momentum Scaling](https://arxiv.org/abs/2412.17107). In a similar vein to C-Optim, the parameter update is modified to separate the update direction from momentum. Thanks to [gesen2egee for the pull request](https://github.com/LoganBooker/prodigy-plus-schedule-free/pull/5).
 
 **ADOPT:** `use_adopt=True`. A partial implementation of [ADOPT: Modified Adam Can Converge with Any β2 with the Optimal Rate](https://arxiv.org/abs/2411.02853), as we only update the second moment after the parameter update, so as to exclude the current gradient. Disabled by default.
 
-**OrthoGrad:** `use_orthograd=True`. Updates weights using the component of the gradient that is orthogonal to the current weight direction, as described in [Grokking at the Edge of Numerical Stability](https://arxiv.org/pdf/2501.04697). Can help prevent overfitting and improve generalisation. Ignored
-for parameters using Muon.
+**OrthoGrad:** `use_orthograd=True`. Updates weights using the component of the gradient that is orthogonal to the current weight direction, as described in [Grokking at the Edge of Numerical Stability](https://arxiv.org/pdf/2501.04697). Can help prevent overfitting and improve generalisation. Ignored for parameters using Muon.
 
-**FOCUS:** `use_focus=True`. Modifies the update step to better handle noise at large step sizes. From [FOCUS: First-Order Concentrated Update Scheme](https://arxiv.org/abs/2501.12243). This method is incompatible with factorisation (which will increase state memory usage), Muon and Adam-atan2. 
-Additionally, Prodigy modifies the second moment updates when `d` changes, which may limit the benefits of this method.
+**FOCUS:** `use_focus=True`. Modifies the update step to better handle noise at large step sizes. From [FOCUS: First-Order Concentrated Update Scheme](https://arxiv.org/abs/2501.12243). This method is incompatible with factorisation (which will increase state memory usage), Muon and Adam-atan2. Additionally, Prodigy modifies the second moment updates when `d` changes, which may limit the benefits of this method.
 
 **SPEED:** `use_speed=True`. Something of my own creation I've dubbed _Simplified Prodigy with rElativE D_. It replaces Prodigy's numerator/denominator ratio with a momentum-based estimate of directional progress. SPEED uses less memory, is scale-insensitive, and can be a better choice when training multiple networks, however, it can be unstable when used with weight decay or for extremely long training runs (where it's recommended to use `prodigy_steps`).
 
