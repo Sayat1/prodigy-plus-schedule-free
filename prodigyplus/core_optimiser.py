@@ -473,7 +473,7 @@ class CoreOptimiser(torch.optim.Optimizer):
                 state['max_x0_minus_l2_norm'] = x0_minus_l2_norm.item()
 
                 # Penalise d as displacement increases. This helps prevent pathologic d growth.
-                d_update = d_update ** (group['d_coef'] ** 0.25)
+                d_update = d_update ** (group['d_coef'] ** 0.125)
                 d_update /= x0_minus_l2_norm.add(1).square()
 
                 # d_denom is unused by SPEED, so use it instead for logging l2.
