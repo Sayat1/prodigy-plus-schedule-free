@@ -191,34 +191,25 @@ class ProdigyPlusScheduleFree(CoreOptimiser):
         return self.use_schedulefree
 
     @torch.no_grad()
-    def eval(self):
+    def set_train_mode(self, train):
         if not self.is_schedulefree():
             return
+        w = 1 - beta1 if train else 1 - 1 / beta1
         for group in self.param_groups:
-            if not group['train_mode']:
+            if group['train_mode'] == train:
                 continue
             beta1, _ = self.get_betas(group)
             for p in group['params']:
                 z = self.state[p].get('z')
                 if z is not None:
-                    # Set p to x
-                    p.lerp_(end=z.to(device=p.device), weight=1 - 1 / beta1)
-            group['train_mode'] = False
+                    p.lerp_(end=z.to(device=p.device), weight=w)
+            group['train_mode'] = train
 
-    @torch.no_grad()
-    def train(self):
-        if not self.is_schedulefree():
-            return
-        for group in self.param_groups:
-            if group['train_mode']:
-                continue
-            beta1, _ = self.get_betas(group)
-            for p in group['params']:
-                z = self.state[p].get('z')
-                if z is not None:
-                    # Set p to y
-                    p.lerp_(end=z.to(device=p.device), weight=1 - beta1)
-            group['train_mode'] = True
+    def eval(self): 
+        self.set_train_mode(False)
+
+    def train(self): 
+        self.set_train_mode(True)
 
     @torch.no_grad()
     def initialise_state(self, p, group):
