@@ -1,19 +1,8 @@
 import torch
-import re
 from statistics import harmonic_mean
-from enum import Flag, auto
 
 class CoreOptimiser(torch.optim.Optimizer):
-    class ExtraFeatures(Flag):
-        NONE = 0
-        SPLIT_GROUPS_MEAN = auto()
-        FACTORED_GRAD_DTYPE = auto()
-        DECOUPLE_LR = auto()
-        CAUTIOUS = auto()
-        GRAMS = auto()
-        ADOPT = auto()
-        ORTHOGRAD = auto()
-        FOCUS = auto()
+    VERSION = (2, 0, 0)
 
     def __init__(self, params, **kwargs):
         if not 0.0 < kwargs['d0']:
@@ -31,50 +20,6 @@ class CoreOptimiser(torch.optim.Optimizer):
 
         self.try_hook_kohya_fbp()
 
-        features = kwargs['features']
-
-        if features is None:
-            features = CoreOptimiser.ExtraFeatures.NONE
-        elif isinstance(features, str):
-            tokens = [t for t in re.split(r'\s*[|,]\s*', features.upper()) if t]
-            features = CoreOptimiser.ExtraFeatures.NONE
-            for t in tokens:
-                try:
-                    features |= CoreOptimiser.ExtraFeatures[t]
-                except KeyError:
-                    valid = ', '.join(f.name for f in CoreOptimiser.ExtraFeatures)
-                    raise ValueError(f"[{self.__class__.__name__}] Unknown feature: {t}. Valid features are: {valid}")
-
-        # Maintain backwards-compatibility with previous optimiser arguments.
-        # Tuple has the new feature flag, and bool if we should invert passed value.
-        old_arguments_map = {
-            'split_groups_mean': (CoreOptimiser.ExtraFeatures.SPLIT_GROUPS_MEAN, False),
-            'factored_fp32': (CoreOptimiser.ExtraFeatures.FACTORED_GRAD_DTYPE, True),
-            'weight_decay_by_lr': (CoreOptimiser.ExtraFeatures.DECOUPLE_LR, True),
-            'use_cautious': (CoreOptimiser.ExtraFeatures.CAUTIOUS, False),
-            'use_grams': (CoreOptimiser.ExtraFeatures.GRAMS, False),
-            'use_adopt': (CoreOptimiser.ExtraFeatures.ADOPT, False),
-            'use_orthograd': (CoreOptimiser.ExtraFeatures.ORTHOGRAD, False),
-            'use_focus': (CoreOptimiser.ExtraFeatures.FOCUS, False),
-        }
-
-        deprecated_args = []
-        for arg_name, (feature_flag, invert) in old_arguments_map.items():
-            value = kwargs.pop(arg_name, None)
-            if value is None:
-                continue
-            deprecated_args.append(arg_name)
-            if invert ^ value:
-                features |= feature_flag
-            else:
-                features &= ~feature_flag
-
-        if deprecated_args:
-            print(f"[{self.__class__.__name__}] Deprecated arguments used: {', '.join(deprecated_args)}. Please migrate to the 'features=' argument.")
-
-        def is_on(flag):
-            return bool(features & flag)
-
         if kwargs['eps'] is None:
             print(f"[{self.__class__.__name__}] 'eps' is None, Adam-atan2 enabled.")
             if kwargs['use_stableadamw']:
@@ -86,11 +31,11 @@ class CoreOptimiser(torch.optim.Optimizer):
         if kwargs['use_speed'] and kwargs['weight_decay'] > 0:
             print(f"[{self.__class__.__name__}] WARNING: Weight decay with SPEED detected! Decay will be clamped to dlr * 0.01. If you encounter instability, lower or disable weight decay.")
 
-        if is_on(CoreOptimiser.ExtraFeatures.CAUTIOUS) and is_on(CoreOptimiser.ExtraFeatures.GRAMS):
+        if kwargs['use_cautious'] and kwargs['use_grams']:
             print(f"[{self.__class__.__name__}] 'GRAMS' has been disabled (mutually exclusive with 'CAUTIOUS').")
-            features &= ~CoreOptimiser.ExtraFeatures.GRAMS
+            kwargs['use_grams'] = False
 
-        if is_on(CoreOptimiser.ExtraFeatures.FOCUS):
+        if kwargs['use_focus']:
             if kwargs['factored']:
                 print(f"[{self.__class__.__name__}] 'factored' has been disabled (incompatible with 'FOCUS').")
                 kwargs['factored'] = False
@@ -98,14 +43,18 @@ class CoreOptimiser(torch.optim.Optimizer):
                 print(f"[{self.__class__.__name__}] Adam-atan2 ('eps=None') has been disabled (incompatible with 'FOCUS').")
                 # We skip the Adam-atan2 branch entirely when FOCUS is enabled.
 
-        split_groups = kwargs.pop('split_groups')
-        split_groups_mean = is_on(CoreOptimiser.ExtraFeatures.SPLIT_GROUPS_MEAN)
-        fused_back_pass = kwargs.pop('fused_back_pass')
+        # Older version support for renamed arguments.
+        weight_decay_by_lr = kwargs.pop('weight_decay_by_lr', None)
+        if weight_decay_by_lr is not None:
+            kwargs['decouple_lr'] = not weight_decay_by_lr
 
-        kwargs['features'] = features
+        split_groups = kwargs.pop('split_groups')
+        split_groups_mean = kwargs.pop('split_groups_mean')
+        fused_back_pass = kwargs.pop('fused_back_pass')
 
         defaults = dict(kwargs)
 
+        defaults['optimiser_version'] = CoreOptimiser.VERSION
         defaults['effective_lr'] = defaults['lr']
         defaults['d'] = defaults['d_prev'] = defaults['d0']
         defaults['d_denom'] = defaults['d_numerator'] = 0
@@ -128,16 +77,13 @@ class CoreOptimiser(torch.optim.Optimizer):
         self.fused_back_pass = fused_back_pass
 
         self.print_dtype_warning = True
+        self.print_version_check = True
 
         # Use tensors to keep everything on device during parameter loop.
         for group in (self.param_groups if self.split_groups else self.param_groups[:1]):
             p = group['params'][0]
             group['running_d_numerator'] = torch.tensor(0.0, dtype=torch.float32, device=p.device)
             group['running_d_denom'] = torch.tensor(0.0, dtype=torch.float32, device=p.device)
-
-    def use(self, group, flag):
-        features = group.get('features', CoreOptimiser.ExtraFeatures.NONE)
-        return bool(features & flag)
 
     @torch.no_grad()
     def eval(self):
@@ -274,7 +220,7 @@ class CoreOptimiser(torch.optim.Optimizer):
             dtype = torch.bfloat16 if grad.dtype == torch.float32 else grad.dtype
             sliced_data = self.get_sliced_tensor(p)
 
-            if self.use(group, CoreOptimiser.ExtraFeatures.FOCUS):
+            if group['use_focus']:
                 state['exp_avg_sq'] = torch.zeros_like(grad, memory_format=torch.preserve_format).detach()
             else:
                 # NOTE: We don't initialise z/exp_avg here -- subclass needs to do that.
@@ -291,7 +237,7 @@ class CoreOptimiser(torch.optim.Optimizer):
                     col_shape = list(grad.shape)
                     col_shape[dc] = 1
 
-                    factored_dtype = grad.dtype if self.use(group, CoreOptimiser.ExtraFeatures.FACTORED_GRAD_DTYPE) else torch.float32
+                    factored_dtype = torch.float32 if group['factored_fp32'] else grad.dtype
                     state["exp_avg_sq_row"] = torch.zeros(row_shape, dtype=factored_dtype, device=p.device).detach()
                     state["exp_avg_sq_col"] = torch.zeros(col_shape, dtype=factored_dtype, device=p.device).detach()
                     state["exp_avg_sq_metadata"] = (dr, dc)
@@ -320,7 +266,7 @@ class CoreOptimiser(torch.optim.Optimizer):
 
     def get_weight_decay(self, group, lr):
         decay = group['weight_decay']
-        if not self.use(group, CoreOptimiser.ExtraFeatures.DECOUPLE_LR):
+        if group['decouple_lr']:
             decay *= lr
         if group['use_speed']:
             decay = min(lr * 0.01, decay)
@@ -407,6 +353,14 @@ class CoreOptimiser(torch.optim.Optimizer):
         if not self.parameters_to_process:
             # Optimiser hasn't run yet (or is starting a new step), so initialise.
             self.parameters_to_process = sum(len(group['params']) for group in self.param_groups)
+
+            # Check if resuming training started on older version.
+            if self.print_version_check:
+                version = self.param_groups[0].get('optimiser_version', None)
+                if version != self.VERSION:
+                    expected, actual = '.'.join(map(str, self.VERSION)), '.'.join(map(str, version)) if version else '<= 1.9.1'
+                    print (f"[{self.__class__.__name__}] Optimiser version mismatch or missing: expected {expected}, got {actual}. Training resume is not supported between versions!")
+                self.print_version_check = False
 
     def on_end_step(self):
         self.parameters_to_process -= 1
@@ -498,7 +452,7 @@ class CoreOptimiser(torch.optim.Optimizer):
                 del p0
 
     def update_(self, num, denom, state, group, w):
-        if self.use(group, CoreOptimiser.ExtraFeatures.FOCUS):
+        if group['use_focus']:
             # FOCUS: First Order Concentrated Updating Scheme: https://arxiv.org/pdf/2501.12243
             gamma = 0.2
 
@@ -525,7 +479,7 @@ class CoreOptimiser(torch.optim.Optimizer):
         return update
 
     def get_denom(self, state, group):
-        if self.use(group, CoreOptimiser.ExtraFeatures.FOCUS):
+        if group['use_focus']:
             denom = state['exp_avg_sq'].clone()
         elif 'exp_avg_sq_metadata' in state:
             row_var, col_var = state["exp_avg_sq_row"], state["exp_avg_sq_col"]
@@ -553,7 +507,7 @@ class CoreOptimiser(torch.optim.Optimizer):
             denom = self.get_denom(state, group)
 
         # Adam EMA updates
-        if self.use(group, CoreOptimiser.ExtraFeatures.FOCUS):
+        if group['use_focus']:
             state['exp_avg_sq'].mul_(beta2).add_(w, alpha=(1 - beta2) * d_k)
         elif 'exp_avg_sq_metadata' in state:
             row_var, col_var = state["exp_avg_sq_row"], state["exp_avg_sq_col"]
