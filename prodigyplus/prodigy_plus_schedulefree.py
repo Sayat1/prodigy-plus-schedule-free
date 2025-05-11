@@ -202,11 +202,11 @@ class ProdigyPlusScheduleFree(CoreOptimiser):
     def set_train_mode(self, train):
         if not self.is_schedulefree():
             return
-        w = 1 - beta1 if train else 1 - 1 / beta1
         for group in self.param_groups:
             if group['train_mode'] == train:
                 continue
             beta1, _ = self.get_betas(group)
+            w = 1 - beta1 if train else 1 - 1 / beta1
             for p in group['params']:
                 z = self.state[p].get('z')
                 if z is not None:
