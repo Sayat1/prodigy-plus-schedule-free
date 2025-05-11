@@ -386,15 +386,15 @@ class CoreOptimiser(torch.optim.Optimizer):
         if prodigy_steps > 0 and k >= prodigy_steps:
             return
 
-        d, d_coef = group['d'], group['d_coef']
+        d, d_prev, d_coef = group['d'], group['d_prev'], group['d_coef']
         d_numerator, d_denom = group['d_numerator'], group['d_denom']
 
         if group['use_speed']:
             prev_d_numerator, max_d_numerator = group['prev_d_numerator'], group['max_d_numerator']
 
             if d_numerator >= max_d_numerator and d_numerator > 0 and prev_d_numerator > 0:
-                d_power = 0.5 * (group['d_coef'] ** 0.25)
-                d_hat = min(2 ** 0.5, (d_numerator / prev_d_numerator) ** d_power)
+                d_power = 0.5 * (d_prev / d) ** 2
+                d_hat = min(2 ** d_power, (d_numerator / prev_d_numerator) ** 0.5)
                 d = max(d, d * d_hat)
         elif d_denom > 0:
             d_hat = (d_coef * d_numerator) / d_denom
@@ -460,7 +460,7 @@ class CoreOptimiser(torch.optim.Optimizer):
             x0_dot = torch.dot(sliced_grad, x0_minus)
 
             if group['use_speed']:
-                beta = 1 - (k ** -0.9)
+                beta = 1 - (k ** -0.75)
                 x0_dot = state.get('exp_avg_x0_dot', x0_dot) * beta + x0_dot * (1 - beta)
                 state['exp_avg_x0_dot'] = x0_dot.item()
 
@@ -469,9 +469,12 @@ class CoreOptimiser(torch.optim.Optimizer):
                 x0_minus_l1_norm = x0_minus.abs().sum().clamp_min(state.get('max_x0_minus_l1_norm', 1e-8))
                 state['max_x0_minus_l1_norm'] = x0_minus_l1_norm.item()
 
+                x0_minus_l2_norm = x0_minus.norm().clamp_min(state.get('max_x0_minus_l2_norm', 1e-8))
+                state['max_x0_minus_l2_norm'] = x0_minus_l2_norm.item()
+
                 # Penalise d as displacement increases. This helps prevent pathologic d growth.
-                x0_minus_l2_norm = x0_minus.norm().add(1) ** 2
-                d_update /= x0_minus_l2_norm
+                d_update ** (group['d_coef'] ** 0.25)
+                d_update /= x0_minus_l2_norm.add(1).square()
 
                 # d_denom is unused by SPEED, so use it instead for logging l2.
                 running_d_denom.add_(x0_minus_l2_norm)
