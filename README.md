@@ -38,7 +38,7 @@ Unlike reference Prodigy, this optimiser will adjust the stepsize per parameter 
 Earlier versions of the optimiser recommended setting `prodigy_steps` equal to 5-25% of your total step count, but this should not be necessary with recent updates. That said, you can still use the setting to make sure the LR does not change after a certain step, and free any memory used by Prodigy for adapting the step size.
 
 ## Changes in v2.0.0
-* Schedule-Free can be disabled using `use_schedulefree=False`. This reverts the optimiser to straight Prodigy, while keeping per-group learning rates and the rest of the features of the optimiser (StableAdamW, factorisation, and so on).
+* Schedule-Free can be disabled using `use_schedulefree=False`. This reverts the optimiser to straight Prodigy, while keeping per-group learning rates and the rest of the features of the optimiser (StableAdamW, factorisation, and so on). In this mode, it is best paired with a decaying LR scheduler.
 * Changed `split_groups_mean` to `False` so full, per-group stepsize adaptation is active by default.
 * The Prodigy implementation adjusted to more closely match the original.
 * StableAdamW use a soft scaling formula based on the square root of the RMS. This should result in more accurate LR adjustments.
