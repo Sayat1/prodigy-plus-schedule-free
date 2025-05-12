@@ -12,9 +12,8 @@ pip install prodigy-plus-schedule-free
 ```python
 from prodigyplus.prodigy_plus_schedulefree import ProdigyPlusScheduleFree
 optimizer = ProdigyPlusScheduleFree(model.parameters(), lr=1.0, betas=(0.9, 0.99), beta3=None, 
-                 					weight_decay=0.0, decouple_lr=False,
-							d0=1e-6, d_coef=1.0, d_limiter=True,
-							prodigy_steps=0, eps=1e-8, 
+                 					weight_decay=0.0, d0=1e-6, d_coef=1.0,
+							d_limiter=True,	prodigy_steps=0, eps=1e-8, 
 							split_groups=True, split_groups_mean=False,
                  					factored=True, factored_fp32=True, use_bias_correction=False,
                  					use_stableadamw=True, use_schedulefree=True, use_speed=False,
