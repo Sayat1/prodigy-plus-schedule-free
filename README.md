@@ -13,7 +13,8 @@ pip install prodigy-plus-schedule-free
 from prodigyplus.prodigy_plus_schedulefree import ProdigyPlusScheduleFree
 optimizer = ProdigyPlusScheduleFree(model.parameters(), lr=1.0, betas=(0.9, 0.99), beta3=None, 
                  					weight_decay=0.0, decouple_lr=False,
-							d0=1e-6, d_coef=1.0, prodigy_steps=0, eps=1e-8, 
+							d0=1e-6, d_coef=1.0, d_limiter=True,
+							prodigy_steps=0, eps=1e-8, 
 							split_groups=True, split_groups_mean=False,
                  					factored=True, factored_fp32=True, use_bias_correction=False,
                  					use_stableadamw=True, use_schedulefree=True, use_speed=False,
@@ -45,6 +46,7 @@ Earlier versions of the optimiser recommended setting `prodigy_steps` equal to 5
 * SPEED has been completely reworked, and should be more stable and perform better on a wide range of tasks. Personally, I now prefer it over base Prodigy.
 * Removed Muon. It never really worked correctly when combined with Schedule-Free and Prodigy.
 * Removed the "confidence" learning rate limiter, which ended up being too aggressive for non-SDXL training and fine-tuning.
+* Added a limiter to d growth to prevent over-estimated LRs when gradients and EMAs are still stabilising. It can be disabled via `d_limiter=False`.
 * Changed `weight_decay_by_lr` to `decouple_lr` to align with other optimisers. Default is `False`, matching the behaviour of pre-2.0.0.
 * Added logging group parameter `effective_lr`. This value is for reporting only; rather than using `d * lr`, you can track `d * effective_lr`. This provides a closer approximation of the LR when Schedule-Free is on. Once the LR has settled, `d * effective_lr` should be around 10% the size of `d * lr`.
 * Sufficied to say, you should not resume training started with older versions of the optimiser with this one. It will break.
