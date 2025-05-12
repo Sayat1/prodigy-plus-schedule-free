@@ -43,11 +43,6 @@ class CoreOptimiser(torch.optim.Optimizer):
                 print(f"[{self.__class__.__name__}] Adam-atan2 ('eps=None') has been disabled (incompatible with 'FOCUS').")
                 # We skip the Adam-atan2 branch entirely when FOCUS is enabled.
 
-        # Older version support for renamed arguments.
-        weight_decay_by_lr = kwargs.pop('weight_decay_by_lr', None)
-        if weight_decay_by_lr is not None:
-            kwargs['decouple_lr'] = not weight_decay_by_lr
-
         split_groups = kwargs.pop('split_groups')
         split_groups_mean = kwargs.pop('split_groups_mean')
         fused_back_pass = kwargs.pop('fused_back_pass')
@@ -264,12 +259,10 @@ class CoreOptimiser(torch.optim.Optimizer):
             beta3 = self.get_betas(group)[1] ** 0.5
         return beta3
 
-    def get_weight_decay(self, group, lr):
+    def get_weight_decay(self, group):
         decay = group['weight_decay']
-        if group['decouple_lr']:
-            decay *= lr
         if group['use_speed']:
-            decay = min(lr * 0.01, decay)
+            decay = min(decay, 0.01)
         return decay
 
     def get_bias_correction(self, dlr, beta2, k):
