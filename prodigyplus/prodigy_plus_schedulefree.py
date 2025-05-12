@@ -46,11 +46,10 @@ class ProdigyPlusScheduleFree(CoreOptimiser):
             experimenting with 0.95-0.98 for beta1.
             (default: (0.9, 0.99))
         beta3 (float):
-            Coefficient for computing the Prodigy stepsize using running averages. If set to None, uses the value of 
-            square root of beta2 
+            Coefficient for computing the Prodigy stepsize using running averages. If set to None, uses the value sqrt(beta2).
             (default: None).
         weight_decay (float):
-            Decoupled weight decay. To also stop decay from being multiplied by the learning rate, enable the `DECOUPLE_LR` feature.
+            Decoupled weight decay. To also stop decay from being multiplied by the learning rate, set decouple_lr=True.
             (default: 0).
         decouple_lr (boolean):
             By default, weight decay is multiplied by the adaptive learning rate (as per the PyTorch implementation of AdamW). Enabling this 
@@ -63,6 +62,10 @@ class ProdigyPlusScheduleFree(CoreOptimiser):
             Coefficient in the expression for the estimate of d. Values such as 0.5 and 2.0 typically work as well. Changing this parameter 
             is the preferred way to tune the method.
             (default: 1.0)
+        d_limiter (boolean):
+            Limits the growth of d_hat each step, which can help prevent over-estimated learning rates in early training when gradients
+            and EMAs are still stabilising.
+            (default: True)
         prodigy_steps (int):
             If greater than zero, disable Prodigy's stepsize adjustments after the specified optimiser step and release all state memory 
             required by Prodigy.
@@ -154,6 +157,7 @@ class ProdigyPlusScheduleFree(CoreOptimiser):
                  weight_decay=0.0,
                  decouple_lr=False,
                  d0=1e-6, d_coef=1.0,
+                 d_limiter=True,
                  prodigy_steps=0,
                  eps=1e-8,
                  split_groups=True,
@@ -177,7 +181,8 @@ class ProdigyPlusScheduleFree(CoreOptimiser):
 
         super().__init__(params=params, lr=lr, betas=betas, beta3=beta3,
                         weight_decay=weight_decay, decouple_lr=decouple_lr,
-                        d0=d0, d_coef=d_coef, prodigy_steps=prodigy_steps,
+                        d0=d0, d_coef=d_coef, d_limiter=d_limiter,
+                        prodigy_steps=prodigy_steps,
                         eps=eps, split_groups=split_groups, split_groups_mean=split_groups_mean,
                         factored=factored, factored_fp32=factored_fp32,
                         use_bias_correction=use_bias_correction,

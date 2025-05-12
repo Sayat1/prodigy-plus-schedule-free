@@ -334,17 +334,18 @@ class CoreOptimiser(torch.optim.Optimizer):
 
         d, d_prev, d_coef = group['d'], group['d_prev'], group['d_coef']
         d_numerator, d_denom = group['d_numerator'], group['d_denom']
+        prev_d_numerator, max_d_numerator = group['prev_d_numerator'], group['max_d_numerator']
 
         if group['use_speed']:
-            prev_d_numerator, max_d_numerator = group['prev_d_numerator'], group['max_d_numerator']
-
             if d_numerator >= max_d_numerator and d_numerator > 0 and prev_d_numerator > 0:
                 d_power = 0.5 * (d_prev / d) ** 2
                 d_hat = min(2 ** d_power, (d_numerator / prev_d_numerator) ** 0.5)
                 d = max(d, d * d_hat)
         elif d_denom > 0:
-            d_hat = (d_coef * d_numerator) / d_denom
-            d = max(d, d_hat)
+            d_hat = d_numerator / d_denom
+            if group['d_limiter']:
+                d_hat = min(d * (2 ** 0.25), d_hat)
+            d = max(d, d_hat * d_coef)
 
         group['d_prev'] = group['d']
         group['d'] = d
