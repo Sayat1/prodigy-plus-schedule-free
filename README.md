@@ -44,6 +44,8 @@ Earlier versions of the optimiser recommended setting `prodigy_steps` equal to 5
 * StableAdamW use a soft scaling formula based on the square root of the RMS. This should result in more accurate LR adjustments.
 * SPEED has been completely reworked, and should be more stable and perform better on a wide range of tasks. Personally, I now prefer it over base Prodigy.
 * Removed Muon. It never really worked correctly when combined with Schedule-Free and Prodigy.
+* Removed the "confidence" learning rate limiter, which ended up being too aggressive for non-SDXL training and fine-tuning.
+* Changed `weight_decay_by_lr` to `decouple_lr` to align with other optimisers. Default is `False`, matching the behaviour of pre-2.0.0.
 * Added logging group parameter `effective_lr`. This value is for reporting only; rather than using `d * lr`, you can track `d * effective_lr`. This provides a closer approximation of the LR when Schedule-Free is on. Once the LR has settled, `d * effective_lr` should be around 10% the size of `d * lr`.
 * Sufficied to say, you should not resume training started with older versions of the optimiser with this one. It will break.
 
