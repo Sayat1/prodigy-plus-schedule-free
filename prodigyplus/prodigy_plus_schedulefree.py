@@ -49,7 +49,7 @@ class ProdigyPlusScheduleFree(CoreOptimiser):
             Coefficient for computing the Prodigy stepsize using running averages. If set to None, uses the value sqrt(beta2).
             (default: None).
         weight_decay (float):
-            Decoupled weight decay. To also stop decay from being multiplied by the learning rate, set decouple_lr=True.
+            Decoupled weight decay.
             (default: 0).
         d0 (float):
             Initial estimate for Prodigy. Should not require adjustment, but can be increased to 1e-5 or 1e-4 if the optimiser struggles to converge.
