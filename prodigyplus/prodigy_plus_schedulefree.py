@@ -221,9 +221,6 @@ class ProdigyPlusScheduleFree(CoreOptimiser):
         beta1, _ = group['betas']
         decay = group['weight_decay']
     
-        if group['weight_decay_by_lr']:
-            decay *= dlr
-
         weight = dlr ** 2
         weight_sum = group['weight_sum'] + weight
         ckp1 = weight / weight_sum if weight_sum else 0
@@ -232,14 +229,15 @@ class ProdigyPlusScheduleFree(CoreOptimiser):
 
         cautious, grams = group['use_cautious'], group['use_grams']
 
+        y_wd = None
+        if decay != 0: # Weight decay at Y.
+            if group['weight_decay_by_lr']:
+                update.add_(y, alpha=decay)
+            else:
+                y_wd = y.clone().detach()
+
         if cautious or grams:
             u = (y - z).mul_(ckp1).add_(update, alpha=dlr * xy_step)
-
-            if decay != 0:
-                # Weight decay at Y.
-                z.sub_(y, alpha=decay)
-                y.sub_(y, alpha=decay * xy_step)
-
             z.sub_(update, alpha=dlr)
 
             if cautious:
@@ -256,14 +254,13 @@ class ProdigyPlusScheduleFree(CoreOptimiser):
             del u
         else:
             y.lerp_(end=z, weight=ckp1)
-
-            if decay != 0:
-                # Weight decay at Y.
-                z.sub_(y, alpha=decay)
-                y.sub_(y, alpha=decay * xy_step)
-
             z.sub_(update, alpha=dlr)
             y.sub_(update, alpha=dlr * xy_step)
+
+        if y_wd is not None: # Apply decoupled LR decay.
+            z.sub_(y_wd, alpha=decay)
+            y.sub_(y_wd, alpha=decay * xy_step)
+            del y_wd
 
         return weight_sum
 
