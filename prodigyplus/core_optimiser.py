@@ -29,7 +29,8 @@ class CoreOptimiser(torch.optim.Optimizer):
         # SPEED expects (mostly) unmodified weights during training to determine LR. If weight growth is 
         # dampened too much, SPEED can massively overestimate the LR.
         if kwargs['use_speed'] and kwargs['weight_decay'] > 0:
-            print(f"[{self.__class__.__name__}] WARNING: Weight decay with SPEED detected! Decay will be clamped to dlr * 0.01. If you encounter instability, lower or disable weight decay.")
+            print(f"[{self.__class__.__name__}] WARNING: Weight decay with SPEED detected! Decay will be clamped to dlr * 0.01, 'decouple_lr' will be disabled.")
+            kwargs['decouple_lr'] = False
 
         if kwargs['use_cautious'] and kwargs['use_grams']:
             print(f"[{self.__class__.__name__}] 'GRAMS' has been disabled (mutually exclusive with 'CAUTIOUS').")
