@@ -64,7 +64,8 @@ class ProdigyPlusScheduleFree(CoreOptimiser):
             (default: 1.0)
         d_limiter (boolean):
             Limits the growth of d_hat each step, which can help prevent over-estimated learning rates in early training when gradients
-            and EMAs are still stabilising.
+            and EMAs are still stabilising. Stepsize adjustments will have a longer warmup period, but should end up more accurate. Does
+            not affect SPEED, which has a built-in limiter.
             (default: True)
         prodigy_steps (int):
             If greater than zero, disable Prodigy's stepsize adjustments after the specified optimiser step and release all state memory 
