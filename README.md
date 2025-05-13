@@ -12,7 +12,7 @@ pip install prodigy-plus-schedule-free
 ```python
 from prodigyplus.prodigy_plus_schedulefree import ProdigyPlusScheduleFree
 optimizer = ProdigyPlusScheduleFree(model.parameters(), lr=1.0, betas=(0.9, 0.99), beta3=None, 
-                 					weight_decay=0.0, d0=1e-6, d_coef=1.0,
+                 					weight_decay=0.0, weight_decay_by_lr=True, d0=1e-6, d_coef=1.0,
 							d_limiter=True,	prodigy_steps=0, eps=1e-8, 
 							split_groups=True, split_groups_mean=False,
                  					factored=True, factored_fp32=True, use_bias_correction=False,
@@ -46,7 +46,6 @@ Earlier versions of the optimiser recommended setting `prodigy_steps` equal to 5
 * Removed Muon. It never really worked correctly when combined with Schedule-Free and Prodigy.
 * Removed the "confidence" learning rate limiter, which ended up being too aggressive for non-SDXL training and fine-tuning.
 * Added a limiter to d growth to prevent over-estimated LRs when gradients and EMAs are still stabilising. It can be disabled via `d_limiter=False`.
-* Changed `weight_decay_by_lr` to `decouple_lr` to align with other optimisers. Default is `False`, matching the behaviour of pre-2.0.0.
 * Added logging group parameter `effective_lr`. This value is for reporting only; rather than using `d * lr`, you can track `d * effective_lr`. This provides a closer approximation of the LR when Schedule-Free is on. Once the LR has settled, `d * effective_lr` should be around 10% the size of `d * lr`.
 * Sufficied to say, you should not resume training started with older versions of the optimiser with this one. It will break.
 
@@ -107,8 +106,9 @@ Looking at `d` alone tells only parts of the story; this is just the LR Prodigy 
 If Prodigy fails to increase the LR over an extended period (say 100 or more steps), and you're not using bias correction, non-constant LR scheduler or warmup, this usually indicates one of the following:
 1. You haven't set the optimiser's `lr` argument to 1. For compatibility with external LR schedulers, the optimiser will multiple the LR you provide with the adaptive one, so if you forget to change this when switching optimisers, the LR will be tiny.
 2. The ideal LR is less than `d0` (Prodigy's initial LR guess). Try setting `d0` to a lower value, such as 1e-7 or 1e-8. If this doesn't help, you can also try setting `d_coef=2` (or higher), or `use_speed=True`.
-2. The value for `d0` is too conservative and starving Prodigy. Try raising `d0` to 1e-5 or 1e-4.
-3. External gradient clipping is enabled. This optimiser handles gradient scaling already, so turn off any external clipping/scaling. Alternatively, you can use external scaling, and disable the internal one via `use_stableadamw=False`.
+3. The value for `d0` is too conservative and starving Prodigy. Try raising `d0` to 1e-5 or 1e-4.
+4. External gradient clipping is enabled. This optimiser handles gradient scaling already, so turn off any external clipping/scaling. Alternatively, you can use external scaling, and disable the internal one via `use_stableadamw=False`.
+5. Set `d_limiter=False`. The growth limiter should never prevent the LR from increasing, but it's possible your training scenario requires faster adjustments.
 
 ## MNIST results
 Generated from the [MNIST example in the Schedule-Free repository](https://github.com/facebookresearch/schedule_free/tree/main/examples/mnist), using the default settings.

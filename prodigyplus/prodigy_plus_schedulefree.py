@@ -49,12 +49,12 @@ class ProdigyPlusScheduleFree(CoreOptimiser):
             Coefficient for computing the Prodigy stepsize using running averages. If set to None, uses the value sqrt(beta2).
             (default: None).
         weight_decay (float):
-            Decoupled weight decay. To also stop decay from being multiplied by the learning rate, set decouple_lr=True.
+            Decoupled weight decay. To also stop decay from being multiplied by the learning rate, set weight_decay_by_lr=False.
             (default: 0).
-        decouple_lr (boolean):
-            By default, weight decay is multiplied by the adaptive learning rate (as per the PyTorch implementation of AdamW). Enabling this 
+        weight_decay_by_lr (boolean):
+            By default, weight decay is multiplied by the adaptive learning rate (as per the PyTorch implementation of AdamW). Disabling this 
             feature will stop decay being multiplied by the LR. Its effect will be stronger and less sensitive to training dynamics.
-            (default: False)
+            (default: True)
         d0 (float):
             Initial estimate for Prodigy. Should not require adjustment, but can be increased to 1e-5 or 1e-4 if the optimiser struggles to converge.
             (default: 1e-6).
@@ -155,7 +155,7 @@ class ProdigyPlusScheduleFree(CoreOptimiser):
     def __init__(self, params, lr=1.0,
                  betas=(0.9, 0.99), beta3=None,
                  weight_decay=0.0,
-                 decouple_lr=False,
+                 weight_decay_by_lr=True,
                  d0=1e-6, d_coef=1.0,
                  d_limiter=True,
                  prodigy_steps=0,
@@ -180,7 +180,7 @@ class ProdigyPlusScheduleFree(CoreOptimiser):
         self.use_schedulefree = use_schedulefree
 
         super().__init__(params=params, lr=lr, betas=betas, beta3=beta3,
-                        weight_decay=weight_decay, decouple_lr=decouple_lr,
+                        weight_decay=weight_decay, weight_decay_by_lr=weight_decay_by_lr,
                         d0=d0, d_coef=d_coef, d_limiter=d_limiter,
                         prodigy_steps=prodigy_steps,
                         eps=eps, split_groups=split_groups, split_groups_mean=split_groups_mean,
@@ -252,7 +252,7 @@ class ProdigyPlusScheduleFree(CoreOptimiser):
 
         y_wd = None
         if decay != 0: # Weight decay at Y.
-            if not group['decouple_lr']:
+            if group['weight_decay_by_lr']:
                 update.add_(y, alpha=decay)
             else:
                 y_wd = y.clone().detach()
@@ -278,7 +278,7 @@ class ProdigyPlusScheduleFree(CoreOptimiser):
             z.sub_(update, alpha=dlr)
             y.sub_(update, alpha=dlr * xy_step)
 
-        if y_wd is not None:
+        if y_wd is not None: # Apply decoupled LR decay.
             z.sub_(y_wd, alpha=decay)
             y.sub_(y_wd, alpha=decay * xy_step)
             del y_wd
@@ -341,7 +341,7 @@ class ProdigyPlusScheduleFree(CoreOptimiser):
 
             decay = self.get_weight_decay(group)
             if decay != 0:
-                if not group['decouple_lr']:
+                if group['weight_decay_by_lr']:
                     decay *= dlr
                 y.mul_(1 - decay)
 
