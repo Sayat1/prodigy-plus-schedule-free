@@ -54,6 +54,7 @@ class CoreOptimiser(torch.optim.Optimizer):
         defaults['effective_lr'] = defaults['lr']
         defaults['d'] = defaults['d_prev'] = defaults['d0']
         defaults['d_denom'] = defaults['d_numerator'] = 0
+        defaults['prev_d_numerator'] = defaults['max_d_numerator'] = 0
         defaults['train_mode'] = True
         defaults['k'] = 1
 
@@ -290,7 +291,7 @@ class CoreOptimiser(torch.optim.Optimizer):
 
         running_d_numerator, running_d_denom = self.get_running_values_for_group(group)
 
-        max_d_numerator = group.get('max_d_numerator', 0)
+        max_d_numerator = group['max_d_numerator']
         d_numerator = group['d_numerator']
         d_numerator *= beta3
 
