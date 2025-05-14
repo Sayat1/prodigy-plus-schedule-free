@@ -39,6 +39,7 @@ class CoreOptimiser(torch.optim.Optimizer):
                  prodigy_steps=0,
                  use_speed=False,
                  eps=1e-8,
+                 slice_p=11,
                  split_groups=True,
                  split_groups_mean=True,
                  factored=True,
@@ -125,6 +126,7 @@ class CoreOptimiser(torch.optim.Optimizer):
             print(f"[{self.__class__.__name__}] Optimiser contains single param_group -- 'split_groups' has been disabled.")
             split_groups = False
 
+        self.slice_p = slice_p
         self.split_groups = split_groups
         self.split_groups_mean = split_groups_mean
 
@@ -329,7 +331,7 @@ class CoreOptimiser(torch.optim.Optimizer):
         if needs_init:
             grad = p.grad
             dtype = torch.bfloat16 if grad.dtype == torch.float32 else grad.dtype
-            sliced_data = self.get_sliced_tensor(p)
+            sliced_data = self.get_sliced_tensor(p, self.slice_p)
 
             if group.get('use_focus', False):
                 state['exp_avg_sq'] = torch.zeros_like(grad, memory_format=torch.preserve_format).detach()
@@ -485,8 +487,8 @@ class CoreOptimiser(torch.optim.Optimizer):
             beta3 = group['beta3']
             d_update = group['d'] ** 0.5
 
-            sliced_grad = self.get_sliced_tensor(grad)
-            sliced_data = self.get_sliced_tensor(data)
+            sliced_grad = self.get_sliced_tensor(grad, self.slice_p)
+            sliced_data = self.get_sliced_tensor(data, self.slice_p)
 
             running_d_numerator, running_d_denom = self.get_running_values_for_group(group)
 
