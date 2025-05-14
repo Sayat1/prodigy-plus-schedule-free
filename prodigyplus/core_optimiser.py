@@ -55,6 +55,7 @@ class CoreOptimiser(torch.optim.Optimizer):
         defaults['d'] = defaults['d_prev'] = defaults['d0']
         defaults['d_denom'] = defaults['d_numerator'] = 0
         defaults['prev_d_numerator'] = defaults['max_d_numerator'] = 0
+        defaults['shared_d'] = None
         defaults['train_mode'] = True
         defaults['k'] = 1
 
@@ -378,6 +379,10 @@ class CoreOptimiser(torch.optim.Optimizer):
                     self.calculate_d(group)
 
                 global_group['shared_d'] = self.get_d_mean()
+
+                # Copy shared_d to other groups for logging purposes.
+                for group in self.param_groups:
+                    group['shared_d'] = global_group['shared_d']
             else:
                 # When groups aren't split, calculate d for the first group (which collects stats for all groups in non-split mode), 
                 # then copy to all other groups.
@@ -399,7 +404,7 @@ class CoreOptimiser(torch.optim.Optimizer):
     def get_dlr(self, group):
         global_group = self.global_group
         shared_d = global_group.get('shared_d', None)
-        dlr = (shared_d if global_group['split_groups'] and shared_d else group['d']) * group['lr']
+        dlr = (shared_d if global_group['split_groups'] and global_group['split_groups_mean'] and shared_d is not None else group['d']) * group['lr']
         return dlr
 
     def update_prodigy(self, state, group, grad, data):
