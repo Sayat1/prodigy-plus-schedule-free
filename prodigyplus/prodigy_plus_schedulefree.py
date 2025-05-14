@@ -307,7 +307,7 @@ class ProdigyPlusScheduleFree(CoreOptimiser):
 
             if use_adopt:
                 clamp_range = k ** 0.25
-                grad = self.update_(grad, denom, state, group, y).clamp_(-clamp_range, clamp_range)
+                grad = self.update_(grad, denom, group, y).clamp_(-clamp_range, clamp_range)
 
             exp_avg = self.update_first_moment(state, group, grad, beta1)
 
@@ -323,7 +323,7 @@ class ProdigyPlusScheduleFree(CoreOptimiser):
             else:
                 grad.copy_(exp_avg)
 
-            update = grad if use_adopt else self.update_(grad, denom, state, group, y)
+            update = grad if use_adopt else self.update_(grad, denom, group, y)
             del denom
 
         if update is not None:
@@ -381,7 +381,7 @@ class ProdigyPlusScheduleFree(CoreOptimiser):
                 update = grad
             else:
                 grad.mul_(group['d'])
-                update = self.update_(grad, denom, state, group, y)
+                update = self.update_(grad, denom, group, y)
             del denom
 
         if update is not None:
