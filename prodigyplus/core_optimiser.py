@@ -139,7 +139,7 @@ class CoreOptimiser(torch.optim.Optimizer):
             else:
                 return 1
 
-        print("Sayat PDP based on 1.9.1")
+        print("Sayat PDP based on 1.9.2")
 
         if fixed_d is not None:
             groups_fixed_d = fixed_d
