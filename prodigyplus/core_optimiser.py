@@ -153,6 +153,8 @@ class CoreOptimiser(torch.optim.Optimizer):
                 groups_warmup_exp = [fixed_d_warmup_exp for i in self.param_groups]
 
             for group,group_d,group_warmup,group_warmup_exp in zip(self.param_groups,groups_fixed_d,groups_warmup,groups_warmup_exp,strict=True):
+                if group_d == -1:
+                    continue
                 group['d_func'] = lambda step,group_d=group_d,group_warmup=group_warmup,group_warmup_exp=group_warmup_exp : warmup(step,group_warmup,group_warmup_exp) * group_d
 
         # Use tensors to keep everything on device during parameter loop.
