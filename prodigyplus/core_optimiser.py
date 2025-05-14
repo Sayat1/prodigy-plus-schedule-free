@@ -217,29 +217,26 @@ class CoreOptimiser(torch.optim.Optimizer):
             dtype = torch.bfloat16 if grad.dtype == torch.float32 else grad.dtype
             sliced_data = self.get_sliced_tensor(p)
 
-            if group['use_focus']:
-                state['exp_avg_sq'] = torch.zeros_like(grad, memory_format=torch.preserve_format).detach()
+            # NOTE: We don't initialise z/exp_avg here -- subclass needs to do that.
+            factored_dims = self.factored_dims(
+                grad.shape,
+                factored=group['factored'] and not group['use_focus'],
+                min_dim_size_to_factor=32
+            )
+
+            if factored_dims is not None:
+                dc, dr = factored_dims
+                row_shape = list(grad.shape)
+                row_shape[dr] = 1
+                col_shape = list(grad.shape)
+                col_shape[dc] = 1
+
+                factored_dtype = torch.float32 if group['factored_fp32'] else grad.dtype
+                state["exp_avg_sq_row"] = torch.zeros(row_shape, dtype=factored_dtype, device=p.device).detach()
+                state["exp_avg_sq_col"] = torch.zeros(col_shape, dtype=factored_dtype, device=p.device).detach()
+                state["exp_avg_sq_metadata"] = (dr, dc)
             else:
-                # NOTE: We don't initialise z/exp_avg here -- subclass needs to do that.
-                factored_dims = self.factored_dims(
-                    grad.shape,
-                    factored=group['factored'],
-                    min_dim_size_to_factor=32
-                )
-
-                if factored_dims is not None:
-                    dc, dr = factored_dims
-                    row_shape = list(grad.shape)
-                    row_shape[dr] = 1
-                    col_shape = list(grad.shape)
-                    col_shape[dc] = 1
-
-                    factored_dtype = torch.float32 if group['factored_fp32'] else grad.dtype
-                    state["exp_avg_sq_row"] = torch.zeros(row_shape, dtype=factored_dtype, device=p.device).detach()
-                    state["exp_avg_sq_col"] = torch.zeros(col_shape, dtype=factored_dtype, device=p.device).detach()
-                    state["exp_avg_sq_metadata"] = (dr, dc)
-                else:
-                    state['exp_avg_sq'] = torch.zeros_like(grad, memory_format=torch.preserve_format).detach()
+                state['exp_avg_sq'] = torch.zeros_like(grad, memory_format=torch.preserve_format).detach()
 
             # If the initial weights are zero, don't bother storing them.
             if p.any() > 0:
