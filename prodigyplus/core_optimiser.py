@@ -359,7 +359,7 @@ class CoreOptimiser(torch.optim.Optimizer):
                 global_group = self.global_group
                 version = global_group.get('optimiser_version', None)
                 if version != self.VERSION:
-                    expected, actual = '.'.join(map(str, self.VERSION)), '.'.join(map(str, version)) if version else '<= 1.9.1'
+                    expected, actual = '.'.join(map(str, self.VERSION)), '.'.join(map(str, version)) if version else '<= 1.9.2'
                     self.log(f"Optimiser version mismatch or missing: expected {expected}, got {actual}. Training resume is not supported between versions!")
                 self.print_version_check = False
 
