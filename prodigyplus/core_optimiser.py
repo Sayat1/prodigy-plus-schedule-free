@@ -34,18 +34,18 @@ class CoreOptimiser(torch.optim.Optimizer):
         # SPEED can massively overestimate the LR. This only seems to be a problem in certain edge cases; higher weight decay 
         # should be fine for the most part, but warn the user anyway.
         if kwargs['use_speed'] and kwargs['weight_decay'] > 0:
-            self.log(f"WARNING: Weight decay with SPEED detected! If training becomes unstable, try lower values.")
+            self.log(f"WARNING: Weight decay with 'use_speed' detected! If training becomes unstable, try lower values.")
 
         if kwargs['use_cautious'] and kwargs['use_grams']:
-            self.log(f"'GRAMS' has been disabled (mutually exclusive with 'CAUTIOUS').")
+            self.log(f"'use_grams' has been disabled (mutually exclusive with 'use_cautious').")
             kwargs['use_grams'] = False
 
         if kwargs['use_focus']:
             if kwargs['factored']:
-                self.log(f"'factored' has been disabled (incompatible with 'FOCUS').")
+                self.log(f"'factored' has been disabled (incompatible with 'use_focus').")
                 kwargs['factored'] = False
             if kwargs['eps'] is None:
-                self.log(f"Adam-atan2 ('eps=None') has been disabled (incompatible with 'FOCUS').")
+                self.log(f"Adam-atan2 ('eps=None') has been disabled (incompatible with 'use_focus').")
                 # We skip the Adam-atan2 branch entirely when FOCUS is enabled.
 
         defaults = dict(kwargs)
