@@ -30,11 +30,11 @@ class CoreOptimiser(torch.optim.Optimizer):
                 self.log(f"'use_stableadamw' has been disabled (mutually exclusive with Adam-atan2).")
                 kwargs['use_stableadamw'] = False
 
-        # SPEED expects (mostly) unmodified weights during training to determine LR. If weight growth is 
-        # dampened too much, SPEED can massively overestimate the LR.
+        # SPEED expects (mostly) unmodified weights during training to determine LR. If weight growth is dampened too much, 
+        # SPEED can massively overestimate the LR. This only seems to be a problem in certain edge cases; higher weight decay 
+        # should be fine for the most part, but warn the user anyway.
         if kwargs['use_speed'] and kwargs['weight_decay'] > 0:
-            self.log(f"WARNING: Weight decay with SPEED detected; 'weight_decay_by_lr' will be enabled. Values > 0.01 may be unstable.")
-            kwargs['weight_decay_by_lr'] = True
+            self.log(f"WARNING: Weight decay with SPEED detected! If training becomes unstable, try lower values.")
 
         if kwargs['use_cautious'] and kwargs['use_grams']:
             self.log(f"'GRAMS' has been disabled (mutually exclusive with 'CAUTIOUS').")
