@@ -9,7 +9,7 @@ class CoreOptimiser(torch.optim.Optimizer):
             raise ValueError("Invalid d0 value: {}".format(kwargs['d0']))
         if not 0.0 < kwargs['lr']:
             raise ValueError("Invalid learning rate: {}".format(kwargs['lr']))
-        if not 0.0 < kwargs['weight_decay']:
+        if kwargs['weight_decay'] < 0:
             raise ValueError("Invalid weight decay: {}".format(kwargs['weight_decay']))
         if kwargs['prodigy_steps'] < 0:
             raise ValueError("Invalid Prodigy steps: {}".format(kwargs['prodigy_steps']))
