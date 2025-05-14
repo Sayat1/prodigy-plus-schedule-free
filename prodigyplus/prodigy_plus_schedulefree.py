@@ -178,8 +178,6 @@ class ProdigyPlusScheduleFree(CoreOptimiser):
                  use_focus=False,
                  **kwargs):
 
-        self.use_schedulefree = use_schedulefree
-
         super().__init__(params=params, lr=lr, betas=betas, beta3=beta3,
                         weight_decay=weight_decay, weight_decay_by_lr=weight_decay_by_lr,
                         d0=d0, d_coef=d_coef, d_limiter=d_limiter,
@@ -199,19 +197,10 @@ class ProdigyPlusScheduleFree(CoreOptimiser):
                         use_focus=use_focus,
                         **kwargs)
 
-    def is_schedulefree(self):
-        if not hasattr(self, "use_schedulefree"):
-            self.use_schedulefree = True
-        return self.use_schedulefree
-
     @torch.no_grad()
     def set_train_mode(self, train):
-        if not self.is_schedulefree():
-            return
-        for group in self.param_groups:
-            if group['train_mode'] == train:
-                continue
-            beta1, _ = self.get_betas(group)
+        for group in (g for g in self.param_groups if g['use_schedulefree'] and g['train_mode'] != train):
+            beta1, _, _ = self.get_betas(group)
             w = 1 - beta1 if train else 1 - 1 / beta1
             for p in group['params']:
                 z = self.state[p].get('z')
@@ -219,10 +208,10 @@ class ProdigyPlusScheduleFree(CoreOptimiser):
                     p.lerp_(end=z.to(device=p.device), weight=w)
             group['train_mode'] = train
 
-    def eval(self): 
+    def eval(self):
         self.set_train_mode(False)
 
-    def train(self): 
+    def train(self):
         self.set_train_mode(True)
 
     @torch.no_grad()
@@ -230,7 +219,7 @@ class ProdigyPlusScheduleFree(CoreOptimiser):
         state, needs_init = self.initialise_state_internal(p, group)
 
         if needs_init:
-            if self.is_schedulefree():
+            if group['use_schedulefree']:
                 state['z'] = p.detach().clone(memory_format=torch.preserve_format)
             else:
                 state['exp_avg'] = torch.zeros_like(p.grad, memory_format=torch.preserve_format).detach()
@@ -409,7 +398,7 @@ class ProdigyPlusScheduleFree(CoreOptimiser):
         self.on_start_step()
 
         if p.grad is not None:
-            if self.is_schedulefree():
+            if group['use_schedulefree']:
                 self.step_param_schedulefree(p, group)
             else:
                 self.step_param_prodigy(p, group)
