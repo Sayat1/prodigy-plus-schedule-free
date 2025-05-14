@@ -11,7 +11,7 @@ class CoreOptimiser(torch.optim.Optimizer):
             raise ValueError("Invalid learning rate: {}".format(kwargs['lr']))
         if not 0.0 < kwargs['weight_decay']:
             raise ValueError("Invalid weight decay: {}".format(kwargs['weight_decay']))
-        if not 0.0 < kwargs['prodigy_steps']:
+        if kwargs['prodigy_steps'] < 0:
             raise ValueError("Invalid Prodigy steps: {}".format(kwargs['prodigy_steps']))
         if kwargs['eps'] is not None and not 0.0 < kwargs['eps']:
             raise ValueError("Invalid epsilon value: {}".format(kwargs['eps']))
