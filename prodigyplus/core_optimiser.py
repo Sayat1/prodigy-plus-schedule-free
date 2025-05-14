@@ -79,6 +79,9 @@ class CoreOptimiser(torch.optim.Optimizer):
         self.shared_d = None
         self.fused_back_pass = fused_back_pass
 
+        self.print_dtype_warning = True
+        self.print_version_check = True
+
         def warmup(step: int,warmup_step:int,exp:int):
             if step < warmup_step:
                 return (float(step) / float(warmup_step)) ** exp
