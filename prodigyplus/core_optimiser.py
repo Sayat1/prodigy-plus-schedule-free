@@ -1,5 +1,6 @@
 import torch
 from statistics import harmonic_mean
+from collections.abc import Iterable
 
 class CoreOptimiser(torch.optim.Optimizer):
     VERSION = (2, 0, 0)
@@ -48,6 +49,12 @@ class CoreOptimiser(torch.optim.Optimizer):
         split_groups_mean = kwargs.pop('split_groups_mean')
         fused_back_pass = kwargs.pop('fused_back_pass')
 
+
+        kwargs['d_func'] = None
+        fixed_d = kwargs.pop('fixed_d',None)
+        fixed_d_warmup = kwargs.pop('fixed_d_warmup',0)
+        fixed_d_warmup_exp = kwargs.pop('fixed_d_warmup_exp',1)
+
         defaults = dict(kwargs)
 
         defaults['optimiser_version'] = CoreOptimiser.VERSION
@@ -72,8 +79,27 @@ class CoreOptimiser(torch.optim.Optimizer):
         self.shared_d = None
         self.fused_back_pass = fused_back_pass
 
-        self.print_dtype_warning = True
-        self.print_version_check = True
+        def warmup(step: int,warmup_step:int,exp:int):
+            if step < warmup_step:
+                return (float(step) / float(warmup_step)) ** exp
+            else:
+                return 1
+
+        print("Sayat PDP based on 2.0.0b4")
+
+        if fixed_d is not None:
+            groups_fixed_d = fixed_d
+            groups_warmup = fixed_d_warmup
+            groups_warmup_exp = fixed_d_warmup_exp
+            if not isinstance(fixed_d, Iterable):
+                groups_fixed_d = [fixed_d for i in self.param_groups]
+            if not isinstance(fixed_d_warmup, Iterable):
+                groups_warmup = [fixed_d_warmup for i in self.param_groups]
+            if not isinstance(groups_warmup_exp, Iterable):
+                groups_warmup_exp = [fixed_d_warmup_exp for i in self.param_groups]
+
+            for group,group_d,group_warmup,group_warmup_exp in zip(self.param_groups,groups_fixed_d,groups_warmup,groups_warmup_exp,strict=True):
+                group['d_func'] = lambda step,group_d=group_d,group_warmup=group_warmup,group_warmup_exp=group_warmup_exp : warmup(step,group_warmup,group_warmup_exp) * group_d
 
         # Use tensors to keep everything on device during parameter loop.
         for group in (self.param_groups if self.split_groups else self.param_groups[:1]):
@@ -326,20 +352,23 @@ class CoreOptimiser(torch.optim.Optimizer):
         if prodigy_steps > 0 and k >= prodigy_steps:
             return
 
-        d, d_prev, d_coef = group['d'], group['d_prev'], group['d_coef']
-        d_numerator, d_denom = group['d_numerator'], group['d_denom']
-        prev_d_numerator, max_d_numerator = group['prev_d_numerator'], group['max_d_numerator']
+        if group['d_func'] != None:
+            d = group['d_func'](k)
+        else:
+            d, d_prev, d_coef = group['d'], group['d_prev'], group['d_coef']
+            d_numerator, d_denom = group['d_numerator'], group['d_denom']
+            prev_d_numerator, max_d_numerator = group['prev_d_numerator'], group['max_d_numerator']
 
-        if group['use_speed']:
-            if d_numerator >= max_d_numerator and d_numerator > 0 and prev_d_numerator > 0:
-                d_power = 0.5 * (d_prev / d) ** 2
-                d_hat = min(2 ** d_power, (d_numerator / prev_d_numerator) ** 0.5)
-                d = max(d, d * d_hat)
-        elif d_denom > 0:
-            d_hat = d_numerator / d_denom
-            if group['d_limiter']:
-                d_hat = min(d * (2 ** 0.25), d_hat)
-            d = max(d, d_hat * d_coef)
+            if group['use_speed']:
+                if d_numerator >= max_d_numerator and d_numerator > 0 and prev_d_numerator > 0:
+                    d_power = 0.5 * (d_prev / d) ** 2
+                    d_hat = min(2 ** d_power, (d_numerator / prev_d_numerator) ** 0.5)
+                    d = max(d, d * d_hat)
+            elif d_denom > 0:
+                d_hat = d_numerator / d_denom
+                if group['d_limiter']:
+                    d_hat = min(d * (2 ** 0.25), d_hat)
+                d = max(d, d_hat * d_coef)
 
         group['d_prev'] = group['d']
         group['d'] = d
