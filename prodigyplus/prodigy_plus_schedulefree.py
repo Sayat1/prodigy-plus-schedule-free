@@ -372,21 +372,21 @@ class ProdigyPlusScheduleFree(CoreOptimiser):
         update = None
 
         if use_adopt and k == 1:
-            self.update_second_moment(state, group, grad, 0, y, return_denom=False)
+            self.update_second_moment(state, group, grad, 0, z, return_denom=False)
             del grad
         else:
-            denom = self.update_second_moment(state, group, grad, beta2, y, denom_before_update=use_adopt)
+            denom = self.update_second_moment(state, group, grad, beta2, z, denom_before_update=use_adopt)
 
             if use_bias_correction and rho_t <= 4.0:
                 update = grad
             else:
                 grad.mul_(group['d'])
-                update = self.update_(grad, denom, group, y)
+                update = self.update_(grad, denom, group, z)
             del denom
 
         if update is not None:
             if group['use_orthograd']:
-                update = self.orthograd_(y, update)
+                update = self.orthograd_(z, update)
 
             if group['use_stableadamw']:
                 update = self.rms_clip_(update)
