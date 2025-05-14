@@ -381,9 +381,8 @@ class CoreOptimiser(torch.optim.Optimizer):
                     if group['prodigy_steps'] > 0 and group['k'] == group['prodigy_steps']:
                         print(f"[{self.__class__.__name__}] Prodigy stepsize adaptation disabled after {group['k']} steps for param_group {i}.")
 
-                    group['d'] = first_group['d']
-                    group['d_numerator'] = first_group['d_numerator']
-                    group['d_denom'] = first_group['d_denom']
+                    for key in ['d', 'd_prev', 'd_numerator', 'd_denom', 'prev_d_numerator', 'max_d_numerator']:
+                        group[key] = global_group[key]
 
             # Update other group values unrelated to d.
             for group in self.param_groups:
