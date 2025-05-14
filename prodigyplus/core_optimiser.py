@@ -128,13 +128,6 @@ class CoreOptimiser(torch.optim.Optimizer):
             group['running_d_denom'] = denom = denom.to(p.device)
         return numerator, denom
 
-    @torch.no_grad()
-    def get_d_mean(self):
-        global_group = self.global_group
-        if global_group['split_groups'] and global_group['split_groups_mean']:
-            return harmonic_mean(group['d'] for group in self.param_groups)
-        return None
-
     # Implementation from: https://github.com/LucasPrietoAl/grokking-at-the-edge-of-numerical-stability/blob/main/orthograd.py
     def orthograd_(self, p, grad):
         if p.norm(2) <= 1e-30:
@@ -378,11 +371,10 @@ class CoreOptimiser(torch.optim.Optimizer):
                     self.update_d_stats_and_reset(group)
                     self.calculate_d(group)
 
-                global_group['shared_d'] = self.get_d_mean()
-
-                # Copy shared_d to other groups for logging purposes.
-                for group in self.param_groups:
-                    group['shared_d'] = global_group['shared_d']
+                if global_group['split_groups_mean']:
+                    d_mean = harmonic_mean(group['d'] for group in self.param_groups)
+                    for group in self.param_groups:
+                        group['shared_d'] = d_mean
             else:
                 # When groups aren't split, calculate d for the first group (which collects stats for all groups in non-split mode), 
                 # then copy to all other groups.
