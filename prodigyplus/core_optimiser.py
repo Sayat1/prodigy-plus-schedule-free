@@ -340,7 +340,7 @@ class CoreOptimiser(torch.optim.Optimizer):
             # Optimiser hasn't run yet (or is starting a new step), so initialise.
             self.parameters_to_process = sum(len(group['params']) for group in self.param_groups)
 
-            # Check if resuming training started on older version.
+            # Check if resuming training started on an older version.
             if getattr(self, "print_version_check", True):
                 global_group = self.get_global_group()
                 version = global_group.get('optimiser_version', None)
