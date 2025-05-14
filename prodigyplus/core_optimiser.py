@@ -252,13 +252,9 @@ class CoreOptimiser(torch.optim.Optimizer):
         return state, needs_init
 
     def get_betas(self, group):
-        return group['betas']
-
-    def get_beta3(self, group):
+        beta1, beta2 = group['betas']
         beta3 = group['beta3']
-        if beta3 is None:
-            beta3 = self.get_betas(group)[1] ** 0.5
-        return beta3
+        return beta1, beta2, beta3 if beta3 is not None else beta2 ** 0.5
 
     def get_weight_decay(self, group):
         return group['weight_decay']
@@ -290,7 +286,7 @@ class CoreOptimiser(torch.optim.Optimizer):
             return
 
         d, d0 = group['d'], group['d0']
-        beta3 = self.get_beta3(group)
+        _, _, beta3 = self.get_betas(group)
 
         running_d_numerator, running_d_denom = self.get_running_values_for_group(group)
 
@@ -428,7 +424,7 @@ class CoreOptimiser(torch.optim.Optimizer):
                 # Normalise.
                 x0_dot /= x0_minus_l1_norm
             else:
-                beta3 = self.get_beta3(group)
+                _, _, beta3 = self.get_betas(group)
                 running_d_denom.add_(state['s'].mul_(beta3).add_(sliced_grad, alpha=d_update).abs().sum())
 
             running_d_numerator.add_(x0_dot, alpha=d_update)

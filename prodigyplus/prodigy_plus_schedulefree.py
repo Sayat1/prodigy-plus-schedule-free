@@ -228,7 +228,7 @@ class ProdigyPlusScheduleFree(CoreOptimiser):
 
     @torch.no_grad()
     def update_params(self, y, z, update, group, dlr):
-        beta1, _ = self.get_betas(group)
+        beta1, _, _ = self.get_betas(group)
         decay = self.get_weight_decay(group)
 
         weight = dlr ** 2
@@ -279,7 +279,7 @@ class ProdigyPlusScheduleFree(CoreOptimiser):
         use_adopt = group['use_adopt']
         use_bias_correction = group['use_bias_correction']
         stochastic = group['stochastic_rounding']
-        beta1, beta2 = self.get_betas(group)
+        beta1, beta2, _ = self.get_betas(group)
 
         state = self.initialise_state(p, group)
 
@@ -350,7 +350,7 @@ class ProdigyPlusScheduleFree(CoreOptimiser):
         use_adopt = group['use_adopt']
         use_bias_correction = group['use_bias_correction']
         stochastic = group['stochastic_rounding']
-        _, beta2 = self.get_betas(group)
+        _, beta2, _ = self.get_betas(group)
 
         state = self.initialise_state(p, group)
 
