@@ -44,10 +44,6 @@ class CoreOptimiser(torch.optim.Optimizer):
                 print(f"[{self.__class__.__name__}] Adam-atan2 ('eps=None') has been disabled (incompatible with 'FOCUS').")
                 # We skip the Adam-atan2 branch entirely when FOCUS is enabled.
 
-        split_groups = kwargs.pop('split_groups')
-        split_groups_mean = kwargs.pop('split_groups_mean')
-        fused_back_pass = kwargs.pop('fused_back_pass')
-
         defaults = dict(kwargs)
 
         defaults['optimiser_version'] = CoreOptimiser.VERSION
@@ -60,24 +56,19 @@ class CoreOptimiser(torch.optim.Optimizer):
 
         super().__init__(params, defaults)
 
-        self.d0 = defaults['d0']
-        if split_groups and len(self.param_groups) == 1:
+        global_group = self.global_group
+
+        if global_group['split_groups'] and len(self.param_groups) == 1:
             print(f"[{self.__class__.__name__}] Optimiser contains single param_group -- 'split_groups' has been disabled.")
-            split_groups = False
+            global_group['split_groups'] = False
 
-        self.split_groups = split_groups
-        self.split_groups_mean = split_groups_mean
-
-        # Properties for fused backward pass.
         self.parameters_to_process = None
-        self.shared_d = None
-        self.fused_back_pass = fused_back_pass
 
         self.print_dtype_warning = True
         self.print_version_check = True
 
         # Use tensors to keep everything on device during parameter loop.
-        for group in (self.param_groups if self.split_groups else self.param_groups[:1]):
+        for group in (self.param_groups if global_group['split_groups'] else [global_group]):
             p = group['params'][0]
             group['running_d_numerator'] = torch.tensor(0.0, dtype=torch.float32, device=p.device)
             group['running_d_denom'] = torch.tensor(0.0, dtype=torch.float32, device=p.device)
@@ -89,6 +80,16 @@ class CoreOptimiser(torch.optim.Optimizer):
     @torch.no_grad()
     def train(self):
         pass
+
+    @property
+    def global_group(self):
+        if not hasattr(self, '_global_group') or self._global_group is None:
+            self._global_group = next(
+                (g for g in self.param_groups if g.get('is_global_group')),
+                self.param_groups[0]
+            )
+            self._global_group['is_global_group'] = True
+        return self._global_group
 
     @property
     def supports_memory_efficient_fp16(self):
@@ -107,8 +108,9 @@ class CoreOptimiser(torch.optim.Optimizer):
 
     @torch.no_grad()
     def get_running_values_for_group(self, group):
-        if not self.split_groups:
-            group = self.param_groups[0]
+        global_group = self.global_group
+        if not global_group['split_groups']:
+            group = global_group
 
         p = group['params'][0]
         numerator, denom = group['running_d_numerator'], group['running_d_denom']
@@ -120,7 +122,8 @@ class CoreOptimiser(torch.optim.Optimizer):
 
     @torch.no_grad()
     def get_d_mean(self):
-        if self.split_groups and self.split_groups_mean:
+        global_group = self.global_group
+        if global_group['split_groups'] and global_group['split_groups_mean']:
             return harmonic_mean(group['d'] for group in self.param_groups)
         return None
 
@@ -345,7 +348,8 @@ class CoreOptimiser(torch.optim.Optimizer):
 
             # Check if resuming training started on older version.
             if self.print_version_check:
-                version = self.param_groups[0].get('optimiser_version', None)
+                global_group = self.global_group
+                version = global_group.get('optimiser_version', None)
                 if version != self.VERSION:
                     expected, actual = '.'.join(map(str, self.VERSION)), '.'.join(map(str, version)) if version else '<= 1.9.1'
                     print (f"[{self.__class__.__name__}] Optimiser version mismatch or missing: expected {expected}, got {actual}. Training resume is not supported between versions!")
@@ -355,8 +359,10 @@ class CoreOptimiser(torch.optim.Optimizer):
         self.parameters_to_process -= 1
 
         if self.parameters_to_process == 0:
+            global_group = self.global_group
+
             # Update d for next optimiser step.
-            if self.split_groups:
+            if global_group['split_groups']:
                 for i, group in enumerate(self.param_groups):
                     if group['prodigy_steps'] > 0 and group['k'] == group['prodigy_steps']:
                         print(f"[{self.__class__.__name__}] Prodigy stepsize adaptation disabled after {group['k']} steps for param_group {i}.")
@@ -364,14 +370,13 @@ class CoreOptimiser(torch.optim.Optimizer):
                     self.update_d_stats_and_reset(group)
                     self.calculate_d(group)
 
-                self.shared_d = self.get_d_mean()
+                global_group['shared_d'] = self.get_d_mean()
             else:
                 # When groups aren't split, calculate d for the first group (which collects stats for all groups in non-split mode), 
                 # then copy to all other groups.
-                first_group = self.param_groups[0]
-                self.update_d_stats_and_reset(first_group)
-                self.calculate_d(first_group)
-                
+                self.update_d_stats_and_reset(global_group)
+                self.calculate_d(global_group)
+
                 for i, group in enumerate(self.param_groups):
                     if group['prodigy_steps'] > 0 and group['k'] == group['prodigy_steps']:
                         print(f"[{self.__class__.__name__}] Prodigy stepsize adaptation disabled after {group['k']} steps for param_group {i}.")
@@ -386,7 +391,9 @@ class CoreOptimiser(torch.optim.Optimizer):
                 group['k'] += 1
 
     def get_dlr(self, group):
-        dlr = (self.shared_d if self.split_groups and self.shared_d else group['d']) * group['lr']
+        global_group = self.global_group
+        shared_d = global_group.get('shared_d', None)
+        dlr = (shared_d if global_group['split_groups'] and shared_d else group['d']) * group['lr']
         return dlr
 
     def update_prodigy(self, state, group, grad, data):
@@ -488,9 +495,7 @@ class CoreOptimiser(torch.optim.Optimizer):
         return exp_avg.mul_(beta1).add_(grad, alpha=(1 - beta1) * d_k)
 
     def update_second_moment(self, state, group, grad, beta2, w, return_denom=True, denom_before_update=False):
-        d_k = group['d'] ** 2
-
-        denom = None
+        d_k, denom = group['d'] ** 2, None
 
         if return_denom and denom_before_update:
             denom = self.get_denom(state, group)
@@ -589,9 +594,9 @@ class CoreOptimiser(torch.optim.Optimizer):
     def step(self, closure=None):
         self.try_unhook_kohya_fbp()
 
-        if self.fused_back_pass:
+        if self.global_group['fused_back_pass']:
             return
-        
+
         """Performs a single optimisation step.
 
         Arguments:
