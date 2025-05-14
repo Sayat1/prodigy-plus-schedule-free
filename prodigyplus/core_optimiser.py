@@ -29,7 +29,7 @@ class CoreOptimiser(torch.optim.Optimizer):
         # SPEED expects (mostly) unmodified weights during training to determine LR. If weight growth is 
         # dampened too much, SPEED can massively overestimate the LR.
         if kwargs['use_speed'] and kwargs['weight_decay'] > 0:
-            print(f"[{self.__class__.__name__}] WARNING: Weight decay with SPEED detected! Decay will be clamped to dlr * 0.01, 'weight_decay_by_lr' will be enabled.")
+            print(f"[{self.__class__.__name__}] WARNING: Weight decay with SPEED detected; 'weight_decay_by_lr' will be enabled. Values > 0.01 may be unstable.")
             kwargs['weight_decay_by_lr'] = True
 
         if kwargs['use_cautious'] and kwargs['use_grams']:
@@ -261,10 +261,7 @@ class CoreOptimiser(torch.optim.Optimizer):
         return beta3
 
     def get_weight_decay(self, group):
-        decay = group['weight_decay']
-        if group['use_speed']:
-            decay = min(decay, 0.01)
-        return decay
+        return group['weight_decay']
 
     def get_bias_correction(self, dlr, beta2, k):
         beta2_t = beta2 ** k
