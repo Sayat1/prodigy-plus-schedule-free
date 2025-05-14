@@ -103,7 +103,7 @@ class CoreOptimiser(torch.optim.Optimizer):
     @property
     def supports_flat_params(self):
         return True
-    
+
     def supports_fused_back_pass(self):
         return True
 
@@ -197,7 +197,7 @@ class CoreOptimiser(torch.optim.Optimizer):
             return None
         sorted_dims = sorted(((x, i) for i, x in enumerate(shape)))
         return int(sorted_dims[-2][1]), int(sorted_dims[-1][1])
-    
+
     @torch.no_grad()
     def initialise_state(self, p, group):
         raise Exception("Not implemented!")
@@ -206,7 +206,7 @@ class CoreOptimiser(torch.optim.Optimizer):
     def initialise_state_internal(self, p, group):
         state = self.state[p]
         needs_init = len(state) == 0
-        
+
         if needs_init:
             grad = p.grad
 
@@ -316,7 +316,7 @@ class CoreOptimiser(torch.optim.Optimizer):
     def calculate_d(self, group):
         k = group['k']
         prodigy_steps = group['prodigy_steps']
-        
+
         if prodigy_steps > 0 and k >= prodigy_steps:
             return
 
