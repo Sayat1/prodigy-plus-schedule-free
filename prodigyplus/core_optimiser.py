@@ -21,27 +21,27 @@ class CoreOptimiser(torch.optim.Optimizer):
         self.try_hook_kohya_fbp()
 
         if kwargs['eps'] is None:
-            print(f"[{self.__class__.__name__}] 'eps' is None, Adam-atan2 enabled.")
+            self.log(f"'eps' is None, Adam-atan2 enabled.")
             if kwargs['use_stableadamw']:
-                print(f"[{self.__class__.__name__}] 'use_stableadamw' has been disabled (mutually exclusive with Adam-atan2).")
+                self.log(f"'use_stableadamw' has been disabled (mutually exclusive with Adam-atan2).")
                 kwargs['use_stableadamw'] = False
 
         # SPEED expects (mostly) unmodified weights during training to determine LR. If weight growth is 
         # dampened too much, SPEED can massively overestimate the LR.
         if kwargs['use_speed'] and kwargs['weight_decay'] > 0:
-            print(f"[{self.__class__.__name__}] WARNING: Weight decay with SPEED detected; 'weight_decay_by_lr' will be enabled. Values > 0.01 may be unstable.")
+            self.log(f"WARNING: Weight decay with SPEED detected; 'weight_decay_by_lr' will be enabled. Values > 0.01 may be unstable.")
             kwargs['weight_decay_by_lr'] = True
 
         if kwargs['use_cautious'] and kwargs['use_grams']:
-            print(f"[{self.__class__.__name__}] 'GRAMS' has been disabled (mutually exclusive with 'CAUTIOUS').")
+            self.log(f"'GRAMS' has been disabled (mutually exclusive with 'CAUTIOUS').")
             kwargs['use_grams'] = False
 
         if kwargs['use_focus']:
             if kwargs['factored']:
-                print(f"[{self.__class__.__name__}] 'factored' has been disabled (incompatible with 'FOCUS').")
+                self.log(f"'factored' has been disabled (incompatible with 'FOCUS').")
                 kwargs['factored'] = False
             if kwargs['eps'] is None:
-                print(f"[{self.__class__.__name__}] Adam-atan2 ('eps=None') has been disabled (incompatible with 'FOCUS').")
+                self.log(f"Adam-atan2 ('eps=None') has been disabled (incompatible with 'FOCUS').")
                 # We skip the Adam-atan2 branch entirely when FOCUS is enabled.
 
         defaults = dict(kwargs)
@@ -59,7 +59,7 @@ class CoreOptimiser(torch.optim.Optimizer):
         global_group = self.global_group
 
         if global_group['split_groups'] and len(self.param_groups) == 1:
-            print(f"[{self.__class__.__name__}] Optimiser contains single param_group -- 'split_groups' has been disabled.")
+            self.log(f"Optimiser contains single param_group -- 'split_groups' has been disabled.")
             global_group['split_groups'] = False
 
         self.parameters_to_process = None
@@ -101,6 +101,9 @@ class CoreOptimiser(torch.optim.Optimizer):
     
     def supports_fused_back_pass(self):
         return True
+
+    def log(self, message):
+        print(f"[{self.__class__.__name__}] {message}")
 
     @torch.no_grad()
     def get_sliced_tensor(self, tensor, slice_p=11):
@@ -214,7 +217,7 @@ class CoreOptimiser(torch.optim.Optimizer):
                 self.print_dtype_warning = True
             
             if self.print_dtype_warning and (p.dtype not in {torch.bfloat16, torch.float32} or grad.dtype not in {torch.bfloat16, torch.float32}):
-                print(f"[{self.__class__.__name__}] Unsupported parameter dtype! The optimiser is designed for bf16 and fp32 training only. Other dtypes may produce unexpected results.")
+                self.log(f"Unsupported parameter dtype! The optimiser is designed for bf16 and fp32 training only. Other dtypes may produce unexpected results.")
                 self.print_dtype_warning = False
 
             dtype = torch.bfloat16 if grad.dtype == torch.float32 else grad.dtype
@@ -352,7 +355,7 @@ class CoreOptimiser(torch.optim.Optimizer):
                 version = global_group.get('optimiser_version', None)
                 if version != self.VERSION:
                     expected, actual = '.'.join(map(str, self.VERSION)), '.'.join(map(str, version)) if version else '<= 1.9.1'
-                    print (f"[{self.__class__.__name__}] Optimiser version mismatch or missing: expected {expected}, got {actual}. Training resume is not supported between versions!")
+                    self.log(f"Optimiser version mismatch or missing: expected {expected}, got {actual}. Training resume is not supported between versions!")
                 self.print_version_check = False
 
     def on_end_step(self):
@@ -365,7 +368,7 @@ class CoreOptimiser(torch.optim.Optimizer):
             if global_group['split_groups']:
                 for i, group in enumerate(self.param_groups):
                     if group['prodigy_steps'] > 0 and group['k'] == group['prodigy_steps']:
-                        print(f"[{self.__class__.__name__}] Prodigy stepsize adaptation disabled after {group['k']} steps for param_group {i}.")
+                        self.log(f"Prodigy stepsize adaptation disabled after {group['k']} steps for param_group {i}.")
 
                     self.update_d_stats_and_reset(group)
                     self.calculate_d(group)
@@ -379,7 +382,7 @@ class CoreOptimiser(torch.optim.Optimizer):
 
                 for i, group in enumerate(self.param_groups):
                     if group['prodigy_steps'] > 0 and group['k'] == group['prodigy_steps']:
-                        print(f"[{self.__class__.__name__}] Prodigy stepsize adaptation disabled after {group['k']} steps for param_group {i}.")
+                        self.log(f"Prodigy stepsize adaptation disabled after {group['k']} steps for param_group {i}.")
 
                     for key in ['d', 'd_prev', 'd_numerator', 'd_denom', 'prev_d_numerator', 'max_d_numerator']:
                         group[key] = global_group[key]
@@ -555,7 +558,7 @@ class CoreOptimiser(torch.optim.Optimizer):
                 else:
                     unwrapped_optimiser = optimizer
                
-                print(f"[{self.__class__.__name__}] Kohya pipeline detected with fused backward pass. Gradient hook patch successful.")
+                self.log(f"Kohya pipeline detected with fused backward pass. Gradient hook patch successful.")
                 library.adafactor_fused.patch_adafactor_fused = unwrapped_optimiser.kohya_original_patch_adafactor_fused # Restore the original method.
 
                 unwrapped_optimiser.fused_back_pass = True
