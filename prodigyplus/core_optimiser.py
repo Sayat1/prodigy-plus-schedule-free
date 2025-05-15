@@ -522,7 +522,7 @@ class CoreOptimiser(torch.optim.Optimizer):
         return tensor.norm(2).div(tensor.numel() ** 0.5).clamp_min(eps)
 
     def rms_clip_(self, tensor):
-        return tensor.mul_(1 / self.get_rms(tensor, 1.0).sqrt())
+        return tensor.mul_(self.get_rms(tensor, 1.0).rsqrt())
 
     def try_hook_kohya_fbp(self):
         self.kohya_original_patch_adafactor_fused = None
