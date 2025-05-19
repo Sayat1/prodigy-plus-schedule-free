@@ -3,6 +3,18 @@
 
 **Current status:** Experimental
 
+## Changes in v2.0.0
+* Schedule-Free can be disabled using `use_schedulefree=False`. This reverts the optimiser to straight Prodigy, while keeping per-group learning rates and the rest of the features of the optimiser (StableAdamW, factorisation, and so on). In this mode, it is best paired with a decaying LR scheduler.
+* Changed `split_groups_mean` to `False` so full, per-group stepsize adaptation is active by default.
+* The Prodigy implementation adjusted to more closely match the original.
+* StableAdamW use a soft scaling formula based on the square root of the RMS. This should result in more accurate LR adjustments.
+* SPEED has been completely reworked, and should be more stable and perform better on a wide range of tasks. Personally, I now prefer it over base Prodigy.
+* Removed Muon. It never really worked correctly when combined with Schedule-Free and Prodigy.
+* Removed the "confidence" learning rate limiter, which ended up being too aggressive for non-SDXL training and fine-tuning.
+* Added a limiter to d growth to prevent over-estimated LRs when gradients and EMAs are still stabilising. It can be disabled via `d_limiter=False`.
+* Added logging group parameter `effective_lr`. This value is for reporting only; rather than using `d * lr`, you can track `d * effective_lr`. This provides a closer approximation of the LR when Schedule-Free is on. Once the LR has settled, `d * effective_lr` should be around 10% the size of `d * lr`.
+* Sufficied to say, you should not resume training started with older versions of the optimiser with this one. It will break.
+
 ## Installation
 ```
 pip install prodigy-plus-schedule-free
@@ -22,32 +34,23 @@ optimizer = ProdigyPlusScheduleFree(model.parameters(), lr=1.0, betas=(0.9, 0.99
 							use_orthograd=False, use_focus=False)
 ```
 
-As with the reference implementation of Schedule-Free, a constant scheduler should be used, along with the appropriate
-calls to `optimizer.train()` and `optimizer.eval()`. See the Schedule-Free documentation for more details: https://github.com/facebookresearch/schedule_free
+> [!IMPORTANT]
+> As with the reference implementation of Schedule-Free, a constant scheduler should be used, along with the appropriate calls to `optimizer.train()` and `optimizer.eval()`. See the Schedule-Free documentation for more details: https://github.com/facebookresearch/schedule_free
 
 ## TLDR
 The default settings should "just work", but there are a few configurations you can try to improve things.
 
 ### Gradient scaling/clipping
-By default, the optimiser uses StableAdamW to scale parameter updates, which reduces the need for external gradient scaling or clipping. However, this can also hamper Prodigy's ability to adapt the stepsize. While the optimiser includes internal logic to mostly mitigate this, you can set `use_stableadamw=False` and use external gradient clipping instead.
+By default, the optimiser uses StableAdamW to scale parameter updates, which reduces the need for external gradient scaling or clipping. However, this can also hamper Prodigy's ability to adapt the stepsize. While the optimiser includes internal logic to mostly mitigate this, you can try `eps=None` to use Adam-atan2 instead, or set `use_stableadamw=False` and use external gradient clipping.
 
 ### Training multiple networks
-Unlike reference Prodigy, this optimiser will adjust the stepsize per parameter group, allowing one to train multiple networks at the same time. To use the original behaviour, set `split_groups=False`.
+Unlike reference Prodigy, this optimiser will adjust the stepsize per parameter group, allowing one to train multiple networks at the same time. To train all groups together like the original Prodigy, set `split_groups=False`.
+
+> [!TIP]
+> As of v2.0.0, `split_groups_mean` is `False` by default, so full, per-group training is always active. Set `split_groups_mean=True` to replicate the behaviour of older versions.
 
 ### Turning off Prodigy
 Earlier versions of the optimiser recommended setting `prodigy_steps` equal to 5-25% of your total step count, but this should not be necessary with recent updates. That said, you can still use the setting to make sure the LR does not change after a certain step, and free any memory used by Prodigy for adapting the step size.
-
-## Changes in v2.0.0
-* Schedule-Free can be disabled using `use_schedulefree=False`. This reverts the optimiser to straight Prodigy, while keeping per-group learning rates and the rest of the features of the optimiser (StableAdamW, factorisation, and so on). In this mode, it is best paired with a decaying LR scheduler.
-* Changed `split_groups_mean` to `False` so full, per-group stepsize adaptation is active by default.
-* The Prodigy implementation adjusted to more closely match the original.
-* StableAdamW use a soft scaling formula based on the square root of the RMS. This should result in more accurate LR adjustments.
-* SPEED has been completely reworked, and should be more stable and perform better on a wide range of tasks. Personally, I now prefer it over base Prodigy.
-* Removed Muon. It never really worked correctly when combined with Schedule-Free and Prodigy.
-* Removed the "confidence" learning rate limiter, which ended up being too aggressive for non-SDXL training and fine-tuning.
-* Added a limiter to d growth to prevent over-estimated LRs when gradients and EMAs are still stabilising. It can be disabled via `d_limiter=False`.
-* Added logging group parameter `effective_lr`. This value is for reporting only; rather than using `d * lr`, you can track `d * effective_lr`. This provides a closer approximation of the LR when Schedule-Free is on. Once the LR has settled, `d * effective_lr` should be around 10% the size of `d * lr`.
-* Sufficied to say, you should not resume training started with older versions of the optimiser with this one. It will break.
 
 ## Details
 An optimiser based on Prodigy that includes Schedule-Free logic and much, much lower memory usage, the aim being to remove the need to set any hyperparameters. Of course, that's never the case with any optimiser, but hopefully, this comes close!
@@ -82,24 +85,27 @@ This setting can be particularly helpful when training diffusion models, which h
 ## Experimental features
 **Adam-atan2:** `eps=None`. Outlined in [Scaling Exponents Across Parameterizations and Optimizers](https://arxiv.org/abs/2407.05872), you can use atan2 in place of the regular division plus epsilon found in most Adam-style optimisers. This makes updates scale-invariant, and removes the need to tweak the epsilon. Disabled by default.
 
-**C-Optim:** `use_cautious=True`. Outlined in [Cautious Optimizers: Improving Training with One Line of Code](https://arxiv.org/pdf/2411.16085). Applies a simple modification to parameter updates that promotes values that are aligned with the current gradient. This should result in faster convergence. While not 1:1 compatible with schedule-free, [the implementation by nhamanasu](https://github.com/facebookresearch/schedule_free/pull/54) does work, though improvements may be limited.
+**C-Optim:** `use_cautious=True`. Outlined in [Cautious Optimizers: Improving Training with One Line of Code](https://arxiv.org/pdf/2411.16085). Applies a simple modification to parameter updates that promotes values that are aligned with the current gradient. This should result in faster convergence. While not 1:1 compatible with Schedule-Free, [the implementation by nhamanasu](https://github.com/facebookresearch/schedule_free/pull/54) does work, though improvements may be limited.
 
 **Grams:** `use_grams=True`. Described in [Grams: Gradient Descent with Adaptive Momentum Scaling](https://arxiv.org/abs/2412.17107). In a similar vein to C-Optim, the parameter update is modified to separate the update direction from momentum. Thanks to [gesen2egee for the pull request](https://github.com/LoganBooker/prodigy-plus-schedule-free/pull/5).
 
 **ADOPT:** `use_adopt=True`. A partial implementation of [ADOPT: Modified Adam Can Converge with Any β2 with the Optimal Rate](https://arxiv.org/abs/2411.02853), as we only update the second moment after the parameter update, so as to exclude the current gradient. Disabled by default.
 
-**OrthoGrad:** `use_orthograd=True`. Updates weights using the component of the gradient that is orthogonal to the current weight direction, as described in [Grokking at the Edge of Numerical Stability](https://arxiv.org/pdf/2501.04697). Can help prevent overfitting and improve generalisation. Ignored for parameters using Muon.
+**OrthoGrad:** `use_orthograd=True`. Updates weights using the component of the gradient that is orthogonal to the current weight direction, as described in [Grokking at the Edge of Numerical Stability](https://arxiv.org/pdf/2501.04697). Can help prevent overfitting and improve generalisation.
 
 **FOCUS:** `use_focus=True`. Modifies the update step to better handle noise at large step sizes. From [FOCUS: First-Order Concentrated Update Scheme](https://arxiv.org/abs/2501.12243). This method is incompatible with factorisation (which will increase state memory usage), Muon and Adam-atan2. Additionally, Prodigy modifies the second moment updates when `d` changes, which may limit the benefits of this method.
 
 **SPEED:** `use_speed=True`. Something of my own creation I've dubbed _Simplified Prodigy with rElativE D_. It replaces Prodigy's numerator/denominator ratio with a momentum-based estimate of directional progress. SPEED uses less memory, is scale-insensitive, and can be a better choice when training multiple networks, however, it can be unstable when used with weight decay or for extremely long training runs (where it's recommended to use `prodigy_steps`).
+
+> [!NOTE]
+> If `use_schedulefree=False`, all experimental features are implemented as per their reference implementations.
 
 ## Prodigy FAQ
 **Q: Why doesn't Prodigy ever lower the learning rate?**
 
 The original Prodigy's aim is not to act as a combined learning rate calculator and scheduler. It's meant to ballpark a good learning rate, and leave LR decay to your preferred scheduler (usually cosine). Prodigy + Schedule-Free does combine the two, but it doesn't adjust the LR directly -- in simple terms, it uses a smaller and smaller portion of the averaged updates as training goes on, roughly approximating a 1/t schedule. 
 
-Looking at `d` alone tells only parts of the story; this is just the LR Prodigy has calculated, minus any internal modifications. A better metric is observing the norm of the weights, you'll see their rate of growth decrease significantly over time, reflecting the small tail of a traditional LR schedule.
+Looking at `d` alone tells only parts of the story; this is just the LR Prodigy has calculated, minus any internal modifications. A better metric is observing the norm of the weights, you'll see their rate of growth decrease significantly over time, reflecting the small tail of a traditional LR schedule. You can also log `group['effective_lr'] * group['d']`, which gives a much more accurate representation of Schedule-Free's LR.
 
 **Q: Why isn't Prodigy increasing the LR?**
 
