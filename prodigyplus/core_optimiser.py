@@ -88,13 +88,7 @@ class CoreOptimiser(torch.optim.Optimizer):
         pass
 
     def get_global_group(self):
-        if getattr(self, '_global_group', None) is None:
-            self._global_group = next(
-                (g for g in self.param_groups if g.get('is_global_group', False)),
-                self.param_groups[0]
-            )
-            self._global_group['is_global_group'] = True
-        return self._global_group
+        return self.param_groups[0]
 
     @property
     def supports_memory_efficient_fp16(self):
