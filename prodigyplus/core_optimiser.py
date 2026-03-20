@@ -438,7 +438,6 @@ class CoreOptimiser(torch.optim.Optimizer):
         if group['use_focus']:
             # FOCUS: First Order Concentrated Updating Scheme: https://arxiv.org/pdf/2501.12243
             gamma = group.get('focus_gamma',0.1)
-            print(gamma)
             # Original form.
             # update = torch.sign(num) + gamma * torch.sign(w - denom)
 
