@@ -184,7 +184,8 @@ class ProdigyPlusScheduleFree(CoreOptimiser):
                  use_grams=False,
                  use_adopt=False,
                  use_orthograd=False,
-                 use_focus=False):
+                 use_focus=False,
+                 focus_gamma=0.1):
 
         super().__init__(params=params, lr=lr,
                         betas=betas, beta3=beta3,
