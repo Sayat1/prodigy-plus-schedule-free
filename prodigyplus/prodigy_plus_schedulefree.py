@@ -210,7 +210,8 @@ class ProdigyPlusScheduleFree(CoreOptimiser):
                         use_grams=use_grams,
                         use_adopt=use_adopt,
                         use_orthograd=use_orthograd,
-                        use_focus=use_focus)
+                        use_focus=use_focus,
+                        focus_gamma=focus_gamma)
 
     @torch.no_grad()
     def set_train_mode(self, train):
